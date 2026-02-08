@@ -11,8 +11,19 @@ import (
 	"github.com/joho/godotenv"
 
 	"naima/internal/agent"
+	"naima/internal/llm"
 	"naima/internal/telegram"
 )
+
+const banner = `
+	░▒▓███████▓▒░ ░▒▓██████▓▒░░▒▓█▓▒░▒▓██████████████▓▒░ ░▒▓██████▓▒░  
+	░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░▒▓█▓▒░░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░░▒▓█▓▒░ 
+	░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░▒▓█▓▒░░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░░▒▓█▓▒░ next
+	░▒▓█▓▒░░▒▓█▓▒░▒▓████████▓▒░▒▓█▓▒░▒▓█▓▒░░▒▓█▓▒░░▒▓█▓▒░▒▓████████▓▒░ artificial
+	░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░▒▓█▓▒░░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░░▒▓█▓▒░ intelligence
+	░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░▒▓█▓▒░░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░░▒▓█▓▒░ modular
+	░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░▒▓█▓▒░░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░░▒▓█▓▒░ agent                                                           
+`
 
 func main() {
 	name := flag.String("name", "Naima", "agent name")
@@ -26,7 +37,16 @@ func main() {
 		os.Exit(1)
 	}
 
-	agentInstance := agent.New(*name)
+	fmt.Print(banner)
+
+	llmConfig, err := llm.LoadConfigFromEnv()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err.Error())
+		os.Exit(1)
+	}
+
+	client := llm.NewOpenAIClient(llmConfig)
+	agentInstance := agent.New(*name, client, llmConfig.Model)
 	if err := telegram.RunBot(ctx, agentInstance); err != nil {
 		fmt.Fprintln(os.Stderr, err.Error())
 		os.Exit(1)

@@ -4,14 +4,18 @@ import (
 	"context"
 	"fmt"
 	"time"
+
+	openai "github.com/sashabaranov/go-openai"
 )
 
 type Agent struct {
-	Name string
+	Name   string
+	Client *openai.Client
+	Model  string
 }
 
-func New(name string) *Agent {
-	return &Agent{Name: name}
+func New(name string, client *openai.Client, model string) *Agent {
+	return &Agent{Name: name, Client: client, Model: model}
 }
 
 func (a *Agent) Run(ctx context.Context) error {
@@ -38,9 +42,29 @@ func (a *Agent) ProcessMessage(ctx context.Context, input string) (string, error
 	default:
 	}
 
-	if input == "" {
-		return "Send a message and I'll process it.", nil
+	if a.Client == nil {
+		return "", fmt.Errorf("llm client is not configured")
+	}
+	if a.Model == "" {
+		return "", fmt.Errorf("llm model is not configured")
 	}
 
-	return fmt.Sprintf("%s processed: %s", a.Name, input), nil
+	response, err := a.Client.CreateChatCompletion(
+		ctx,
+		openai.ChatCompletionRequest{
+			Model: a.Model,
+			Messages: []openai.ChatCompletionMessage{
+				{Role: openai.ChatMessageRoleSystem, Content: "You are Naima, a helpful AI agent."},
+				{Role: openai.ChatMessageRoleUser, Content: input},
+			},
+		},
+	)
+	if err != nil {
+		return "", fmt.Errorf("llm request failed: %w", err)
+	}
+	if len(response.Choices) == 0 {
+		return "", fmt.Errorf("llm returned no choices")
+	}
+
+	return response.Choices[0].Message.Content, nil
 }
