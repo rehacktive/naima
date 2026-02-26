@@ -21,9 +21,12 @@ type WebSearchTool struct {
 }
 
 type webSearchParams struct {
-	Query    string `json:"query"`
-	Language string `json:"language,omitempty"`
-	Limit    int    `json:"limit,omitempty"`
+	Query      string   `json:"query"`
+	Language   string   `json:"language,omitempty"`
+	Categories []string `json:"categories,omitempty"`
+	Engines    []string `json:"engines,omitempty"`
+	TimeRange  string   `json:"time_range,omitempty"`
+	Limit      int      `json:"limit,omitempty"`
 }
 
 type searxSearchResponse struct {
@@ -88,7 +91,15 @@ func (t *WebSearchTool) GetFunction() func(params string) string {
 		if strings.TrimSpace(in.Language) != "" {
 			q.Set("language", strings.TrimSpace(in.Language))
 		}
-		q.Set("safesearch", "1")
+		if cats := joinCSV(in.Categories); cats != "" {
+			q.Set("categories", cats)
+		}
+		if engines := joinCSV(in.Engines); engines != "" {
+			q.Set("engines", engines)
+		}
+		if tr := normalizeTimeRange(in.TimeRange); tr != "" {
+			q.Set("time_range", tr)
+		}
 		u.RawQuery = q.Encode()
 
 		req, err := http.NewRequest(http.MethodGet, u.String(), nil)
@@ -116,9 +127,12 @@ func (t *WebSearchTool) GetFunction() func(params string) string {
 		}
 
 		payload := map[string]any{
-			"query":   in.Query,
-			"limit":   limit,
-			"results": out.Results,
+			"query":      in.Query,
+			"categories": in.Categories,
+			"engines":    in.Engines,
+			"time_range": normalizeTimeRange(in.TimeRange),
+			"limit":      limit,
+			"results":    out.Results,
 		}
 		data, err := json.Marshal(payload)
 		if err != nil {
@@ -145,6 +159,25 @@ func (t *WebSearchTool) GetParameters() Parameters {
 				"type":        "string",
 				"description": "Optional Searx language code, e.g. en-US",
 			},
+			"categories": map[string]any{
+				"type":        "array",
+				"description": "Optional Searx categories. Example: [\"web\"], [\"news\"], [\"images\"].",
+				"items": map[string]any{
+					"type": "string",
+				},
+			},
+			"engines": map[string]any{
+				"type":        "array",
+				"description": "Optional Searx engine names, e.g. [\"duckduckgo\", \"brave\"].",
+				"items": map[string]any{
+					"type": "string",
+				},
+			},
+			"time_range": map[string]any{
+				"type":        "string",
+				"description": "Optional time range: day, month, or year.",
+				"enum":        []string{"day", "month", "year"},
+			},
 			"limit": map[string]any{
 				"type":        "integer",
 				"description": "Optional number of results to return (1-8)",
@@ -162,4 +195,28 @@ func errorJSON(message string) string {
 		return `{"error":"unexpected tool error"}`
 	}
 	return string(data)
+}
+
+func joinCSV(values []string) string {
+	if len(values) == 0 {
+		return ""
+	}
+	out := make([]string, 0, len(values))
+	for _, v := range values {
+		v = strings.TrimSpace(v)
+		if v == "" {
+			continue
+		}
+		out = append(out, v)
+	}
+	return strings.Join(out, ",")
+}
+
+func normalizeTimeRange(value string) string {
+	switch strings.ToLower(strings.TrimSpace(value)) {
+	case "day", "month", "year":
+		return strings.ToLower(strings.TrimSpace(value))
+	default:
+		return ""
+	}
 }

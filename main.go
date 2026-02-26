@@ -9,9 +9,11 @@ import (
 	"strconv"
 	"strings"
 	"syscall"
+	"time"
 
 	"github.com/joho/godotenv"
 	memcore "github.com/rehacktive/memorya/memorya"
+	log "github.com/sirupsen/logrus"
 
 	"naima/internal/agent"
 	"naima/internal/httpapi"
@@ -28,7 +30,8 @@ const banner = `
 	░▒▓█▓▒░░▒▓█▓▒░▒▓████████▓▒░▒▓█▓▒░▒▓█▓▒░░▒▓█▓▒░░▒▓█▓▒░▒▓████████▓▒░ artificial
 	░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░▒▓█▓▒░░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░░▒▓█▓▒░ intelligence
 	░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░▒▓█▓▒░░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░░▒▓█▓▒░ modular
-	░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░▒▓█▓▒░░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░░▒▓█▓▒░ agent                                                           
+	░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░▒▓█▓▒░░▒▓█▓▒░░▒▓█▓▒░▒▓█▓▒░░▒▓█▓▒░ agent
+	                                                           
 `
 
 func main() {
@@ -42,6 +45,14 @@ func main() {
 		fmt.Fprintln(os.Stderr, err.Error())
 		os.Exit(1)
 	}
+	log.SetFormatter(&log.TextFormatter{
+		ForceColors:            true,
+		FullTimestamp:          true,
+		TimestampFormat:        time.RFC3339,
+		DisableLevelTruncation: true,
+	})
+	log.SetOutput(os.Stdout)
+	log.SetLevel(log.InfoLevel)
 
 	fmt.Print(banner)
 
@@ -94,6 +105,7 @@ func main() {
 	if apiEnabled {
 		running++
 		go func() {
+			log.Infof("[agent] starting web interface")
 			errCh <- httpapi.RunServer(ctx, agentInstance)
 		}()
 	}
@@ -101,6 +113,7 @@ func main() {
 	if telegramEnabled {
 		running++
 		go func() {
+			log.Infof("[agent] starting telegram interface")
 			errCh <- telegram.RunBot(ctx, agentInstance)
 		}()
 	}

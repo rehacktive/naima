@@ -10,6 +10,7 @@ import (
 	memcore "github.com/rehacktive/memorya/memorya"
 	memstorage "github.com/rehacktive/memorya/storage"
 	openai "github.com/sashabaranov/go-openai"
+	log "github.com/sirupsen/logrus"
 
 	"naima/internal/tools"
 )
@@ -44,6 +45,7 @@ func New(name string, client *openai.Client, model string, embeddingModel string
 }
 
 func (a *Agent) ProcessMessage(ctx context.Context, input string) (string, error) {
+	startedAt := time.Now()
 	select {
 	case <-ctx.Done():
 		return "", ctx.Err()
@@ -67,6 +69,7 @@ func (a *Agent) ProcessMessage(ctx context.Context, input string) (string, error
 	defer a.mu.Unlock()
 
 	normalizedInput := strings.TrimSpace(input)
+	log.Infof("[agent] message received chars=%d", len(normalizedInput))
 	embResp, err := a.Client.CreateEmbeddings(ctx, openai.EmbeddingRequest{
 		Input: []string{normalizedInput},
 		Model: openai.EmbeddingModel(a.EmbeddingModel),
@@ -78,6 +81,7 @@ func (a *Agent) ProcessMessage(ctx context.Context, input string) (string, error
 		return "", fmt.Errorf("embedding response returned no vectors")
 	}
 	emb := append([]float32(nil), embResp.Data[0].Embedding...)
+	log.Infof("[agent] embeddings generated dim=%d", len(emb))
 
 	now := time.Now().UTC()
 	a.Memory.AddMessage(memstorage.Message{
@@ -86,6 +90,7 @@ func (a *Agent) ProcessMessage(ctx context.Context, input string) (string, error
 		Embeddings: &emb,
 		CreatedAt:  &now,
 	}, false)
+	log.Infof("[agent] user message saved to memory")
 
 	messages := make([]openai.ChatCompletionMessage, 0, len(a.Memory.GetMessages())+1)
 	messages = append(messages, openai.ChatCompletionMessage{
@@ -106,6 +111,7 @@ func (a *Agent) ProcessMessage(ctx context.Context, input string) (string, error
 	if len(a.Tools) > 0 {
 		req.Tools = toOpenAITools(a.Tools)
 	}
+	log.Infof("[agent] sending model request context_messages=%d tools=%d", len(messages), len(req.Tools))
 
 	response, err := a.Client.CreateChatCompletion(
 		ctx,
@@ -120,12 +126,14 @@ func (a *Agent) ProcessMessage(ctx context.Context, input string) (string, error
 
 	msg := response.Choices[0].Message
 	if len(msg.ToolCalls) > 0 {
+		log.Infof("[agent] model requested tool calls count=%d", len(msg.ToolCalls))
 		for _, call := range msg.ToolCalls {
 			tool, ok := a.Tools[call.Function.Name]
 			if !ok {
 				return "", fmt.Errorf("tool not found: %s", call.Function.Name)
 			}
 
+			log.Infof("[agent] executing tool name=%s immediate=%t", call.Function.Name, tool.IsImmediate())
 			out := tool.GetFunction()(call.Function.Arguments)
 			if tool.IsImmediate() {
 				now = time.Now().UTC()
@@ -134,6 +142,7 @@ func (a *Agent) ProcessMessage(ctx context.Context, input string) (string, error
 					Content:   out,
 					CreatedAt: &now,
 				}, false)
+				log.Infof("[agent] replied via immediate tool name=%s elapsed=%s", call.Function.Name, time.Since(startedAt).Round(time.Millisecond))
 				return out, nil
 			}
 
@@ -156,6 +165,7 @@ func (a *Agent) ProcessMessage(ctx context.Context, input string) (string, error
 		if len(a.Tools) > 0 {
 			secondReq.Tools = toOpenAITools(a.Tools)
 		}
+		log.Infof("[agent] sending follow-up model request after tool execution")
 
 		secondResponse, err := a.Client.CreateChatCompletion(ctx, secondReq)
 		if err != nil {
@@ -174,6 +184,7 @@ func (a *Agent) ProcessMessage(ctx context.Context, input string) (string, error
 		Content:   answer,
 		CreatedAt: &now,
 	}, false)
+	log.Infof("[agent] assistant message saved; replied chars=%d elapsed=%s", len(answer), time.Since(startedAt).Round(time.Millisecond))
 
 	return answer, nil
 }
@@ -186,6 +197,7 @@ func (a *Agent) ResetMemory() error {
 	a.mu.Lock()
 	defer a.mu.Unlock()
 	a.Memory.Reset()
+	log.Infof("[agent] memory reset")
 	return nil
 }
 

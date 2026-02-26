@@ -11,6 +11,7 @@ import (
 	"strings"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
+	log "github.com/sirupsen/logrus"
 
 	"naima/internal/agent"
 )
@@ -97,6 +98,7 @@ func RunBot(ctx context.Context, agentInstance *agent.Agent) error {
 			}
 
 			text := strings.TrimSpace(update.Message.Text)
+			log.Infof("[telegram] message received user_id=%d chat_id=%d chars=%d", update.Message.From.ID, update.Message.Chat.ID, len(text))
 			if text == "/new" || text == "/reset" {
 				response := "Memory reset. Starting a new conversation."
 				if err := agentInstance.ResetMemory(); err != nil {

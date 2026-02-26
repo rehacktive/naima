@@ -11,6 +11,8 @@ import (
 	"strings"
 	"time"
 
+	log "github.com/sirupsen/logrus"
+
 	"naima/internal/agent"
 )
 
@@ -63,6 +65,7 @@ func RunServer(ctx context.Context, agentInstance *agent.Agent) error {
 			writeError(w, http.StatusBadRequest, "message is required")
 			return
 		}
+		log.Infof("[http] message received remote=%s chars=%d new_conversation=%t", r.RemoteAddr, len(strings.TrimSpace(req.Message)), req.NewConversation)
 		if req.NewConversation {
 			if err := agentInstance.ResetMemory(); err != nil {
 				writeError(w, http.StatusInternalServerError, err.Error())
