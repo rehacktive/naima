@@ -84,8 +84,10 @@ Notes:
 - Memorya active context starts empty on every process restart.
 - In Telegram, send `/new` or `/reset` to clear the current Memorya context.
 - On each new incoming message, Naima computes embeddings before storing it in Memorya.
-- Tools available to the model: `time`, `web_search`.
+- Tools available to the model: `time`, `web_search`, `long_memory`.
 - `web_search` supports optional `categories`, `engines`, and `time_range`
   (`day|month|year`) in addition to `query`.
+- `long_memory` uses `something` as input and returns a summary of relevant
+  previous messages from the memory database.
 - `docker/searxng/settings.yml` is mounted into the SearxNG container and
   enables `json` output so the `web_search` tool can parse results.

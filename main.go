@@ -87,6 +87,7 @@ func main() {
 		[]tools.Tool{
 			tools.NewTimeTool(),
 			tools.NewWebSearchTool(searxURL()),
+			tools.NewLongMemoryTool(client, llmConfig.Model, llmConfig.EmbeddingModel, memStore),
 		},
 	)
 
