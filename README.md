@@ -11,7 +11,7 @@ Naima is a Go-based AI agent.
 ## Run
 
 ```sh
-docker compose up -d pgvector
+docker compose up -d pgvector redis searxng
 cp .env.example .env
 # Edit .env and set OPENAI_API_KEY, OPENAI_MODEL, and OPENAI_EMBEDDING_MODEL
 # Set TELEGRAM_BOT_TOKEN to enable Telegram, or NAIMA_API_TOKEN to enable the REST API
@@ -76,9 +76,14 @@ Optional environment variables:
 - `NAIMA_PGVECTOR_EMBEDDING_DIMS`: embedding vector dimensions for pgvector
   indexing. Set to your model dimension (for example `1536`). Use `0` to skip
   ivfflat index creation (default `0`).
+- `NAIMA_SEARX_URL`: local Searx base URL used by the `web_search` tool
+  (default `http://localhost:8081`).
 
 Notes:
 
 - Memorya active context starts empty on every process restart.
 - In Telegram, send `/new` or `/reset` to clear the current Memorya context.
 - On each new incoming message, Naima computes embeddings before storing it in Memorya.
+- Tools available to the model: `time` and `web_search`.
+- `docker/searxng/settings.yml` is mounted into the SearxNG container and
+  enables `json` output so the `web_search` tool can parse results.

@@ -75,6 +75,7 @@ func main() {
 		memoryInstance,
 		[]tools.Tool{
 			tools.NewTimeTool(),
+			tools.NewWebSearchTool(searxURL()),
 		},
 	)
 
@@ -123,6 +124,14 @@ func pgvectorDSN() string {
 	}
 
 	return "postgres://naima:naima@localhost:5432/naima?sslmode=disable"
+}
+
+func searxURL() string {
+	if p := strings.TrimSpace(os.Getenv("NAIMA_SEARX_URL")); p != "" {
+		return p
+	}
+
+	return "http://localhost:8081"
 }
 
 func envInt(key string, fallback int) int {

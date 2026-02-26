@@ -17,5 +17,36 @@ services:
       timeout: 5s
       retries: 20
 
+  redis:
+    image: valkey/valkey:8-alpine
+    container_name: naima-searx-redis
+    restart: unless-stopped
+    command: ["valkey-server", "--save", "", "--appendonly", "no"]
+    healthcheck:
+      test: ["CMD", "valkey-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  searxng:
+    image: searxng/searxng:latest
+    container_name: naima-searxng
+    restart: unless-stopped
+    depends_on:
+      redis:
+        condition: service_healthy
+    environment:
+      SEARXNG_REDIS_URL: redis://redis:6379/0
+      SEARXNG_URL: http://localhost:8081/
+    ports:
+      - "8081:8080"
+    volumes:
+      - ./docker/searxng/settings.yml:/etc/searxng/settings.yml:ro
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O - http://127.0.0.1:8080/ >/dev/null 2>&1 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+
 volumes:
   pgvector_data:

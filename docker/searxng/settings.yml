@@ -1,0 +1,11 @@
+use_default_settings: true
+
+search:
+  formats:
+    - html
+    - json
+
+server:
+  secret_key: "naima-local-searxng-secret-2026"
+  limiter: false
+  public_instance: false
