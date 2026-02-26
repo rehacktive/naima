@@ -18,6 +18,7 @@ import (
 	"naima/internal/llm"
 	"naima/internal/memory"
 	"naima/internal/telegram"
+	"naima/internal/tools"
 )
 
 const banner = `
@@ -66,7 +67,16 @@ func main() {
 	memSize := envInt("NAIMA_MEMORY_MAX_CONTEXT", 20)
 	memoryInstance := memcore.InitMemorya(memSize, memStore)
 
-	agentInstance := agent.New(*name, client, llmConfig.Model, llmConfig.EmbeddingModel, memoryInstance)
+	agentInstance := agent.New(
+		*name,
+		client,
+		llmConfig.Model,
+		llmConfig.EmbeddingModel,
+		memoryInstance,
+		[]tools.Tool{
+			tools.NewTimeTool(),
+		},
+	)
 
 	apiEnabled := httpapi.IsEnabled()
 	telegramEnabled := strings.TrimSpace(os.Getenv("TELEGRAM_BOT_TOKEN")) != ""

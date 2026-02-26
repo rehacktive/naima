@@ -10,6 +10,8 @@ import (
 	memcore "github.com/rehacktive/memorya/memorya"
 	memstorage "github.com/rehacktive/memorya/storage"
 	openai "github.com/sashabaranov/go-openai"
+
+	"naima/internal/tools"
 )
 
 type Agent struct {
@@ -18,11 +20,27 @@ type Agent struct {
 	Model          string
 	EmbeddingModel string
 	Memory         *memcore.Memorya
+	Tools          map[string]tools.Tool
 	mu             sync.Mutex
 }
 
-func New(name string, client *openai.Client, model string, embeddingModel string, memory *memcore.Memorya) *Agent {
-	return &Agent{Name: name, Client: client, Model: model, EmbeddingModel: embeddingModel, Memory: memory}
+func New(name string, client *openai.Client, model string, embeddingModel string, memory *memcore.Memorya, toolset []tools.Tool) *Agent {
+	toolMap := make(map[string]tools.Tool, len(toolset))
+	for _, tool := range toolset {
+		if tool == nil {
+			continue
+		}
+		toolMap[tool.GetName()] = tool
+	}
+
+	return &Agent{
+		Name:           name,
+		Client:         client,
+		Model:          model,
+		EmbeddingModel: embeddingModel,
+		Memory:         memory,
+		Tools:          toolMap,
+	}
 }
 
 func (a *Agent) ProcessMessage(ctx context.Context, input string) (string, error) {
@@ -81,12 +99,17 @@ func (a *Agent) ProcessMessage(ctx context.Context, input string) (string, error
 		})
 	}
 
+	req := openai.ChatCompletionRequest{
+		Model:    a.Model,
+		Messages: messages,
+	}
+	if len(a.Tools) > 0 {
+		req.Tools = toOpenAITools(a.Tools)
+	}
+
 	response, err := a.Client.CreateChatCompletion(
 		ctx,
-		openai.ChatCompletionRequest{
-			Model:    a.Model,
-			Messages: messages,
-		},
+		req,
 	)
 	if err != nil {
 		return "", fmt.Errorf("llm request failed: %w", err)
@@ -95,7 +118,56 @@ func (a *Agent) ProcessMessage(ctx context.Context, input string) (string, error
 		return "", fmt.Errorf("llm returned no choices")
 	}
 
-	answer := strings.TrimSpace(response.Choices[0].Message.Content)
+	msg := response.Choices[0].Message
+	if len(msg.ToolCalls) > 0 {
+		for _, call := range msg.ToolCalls {
+			tool, ok := a.Tools[call.Function.Name]
+			if !ok {
+				return "", fmt.Errorf("tool not found: %s", call.Function.Name)
+			}
+
+			out := tool.GetFunction()(call.Function.Arguments)
+			if tool.IsImmediate() {
+				now = time.Now().UTC()
+				a.Memory.AddMessage(memstorage.Message{
+					Role:      openai.ChatMessageRoleAssistant,
+					Content:   out,
+					CreatedAt: &now,
+				}, false)
+				return out, nil
+			}
+
+			messages = append(messages, openai.ChatCompletionMessage{
+				Role:      openai.ChatMessageRoleAssistant,
+				ToolCalls: []openai.ToolCall{call},
+			})
+			messages = append(messages, openai.ChatCompletionMessage{
+				Role:       openai.ChatMessageRoleTool,
+				Name:       call.Function.Name,
+				ToolCallID: call.ID,
+				Content:    out,
+			})
+		}
+
+		secondReq := openai.ChatCompletionRequest{
+			Model:    a.Model,
+			Messages: messages,
+		}
+		if len(a.Tools) > 0 {
+			secondReq.Tools = toOpenAITools(a.Tools)
+		}
+
+		secondResponse, err := a.Client.CreateChatCompletion(ctx, secondReq)
+		if err != nil {
+			return "", fmt.Errorf("llm request failed after tool execution: %w", err)
+		}
+		if len(secondResponse.Choices) == 0 {
+			return "", fmt.Errorf("llm returned no choices after tool execution")
+		}
+		msg = secondResponse.Choices[0].Message
+	}
+
+	answer := strings.TrimSpace(msg.Content)
 	now = time.Now().UTC()
 	a.Memory.AddMessage(memstorage.Message{
 		Role:      openai.ChatMessageRoleAssistant,
@@ -124,4 +196,31 @@ func normalizeRole(role string) string {
 	default:
 		return openai.ChatMessageRoleUser
 	}
+}
+
+func toOpenAITools(toolset map[string]tools.Tool) []openai.Tool {
+	ret := make([]openai.Tool, 0, len(toolset))
+	for _, tool := range toolset {
+		params := tool.GetParameters()
+		if params.Type == "" {
+			params.Type = "object"
+		}
+
+		schema := map[string]any{
+			"type":       params.Type,
+			"properties": params.Properties,
+			"required":   params.Required,
+		}
+
+		ret = append(ret, openai.Tool{
+			Type: openai.ToolTypeFunction,
+			Function: &openai.FunctionDefinition{
+				Name:        tool.GetName(),
+				Description: tool.GetDescription(),
+				Parameters:  schema,
+			},
+		})
+	}
+
+	return ret
 }
