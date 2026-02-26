@@ -1,0 +1,21 @@
+services:
+  pgvector:
+    image: pgvector/pgvector:pg16
+    container_name: naima-pgvector
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: naima
+      POSTGRES_PASSWORD: naima
+      POSTGRES_DB: naima
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgvector_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U naima -d naima"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+volumes:
+  pgvector_data:

@@ -6,12 +6,17 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"strconv"
+	"strings"
 	"syscall"
 
 	"github.com/joho/godotenv"
+	memcore "github.com/rehacktive/memorya/memorya"
 
 	"naima/internal/agent"
+	"naima/internal/httpapi"
 	"naima/internal/llm"
+	"naima/internal/memory"
 	"naima/internal/telegram"
 )
 
@@ -46,11 +51,81 @@ func main() {
 	}
 
 	client := llm.NewOpenAIClient(llmConfig)
-	agentInstance := agent.New(*name, client, llmConfig.Model)
-	if err := telegram.RunBot(ctx, agentInstance); err != nil {
+
+	memStore, err := memory.NewPGVectorStorage(
+		ctx,
+		pgvectorDSN(),
+		envInt("NAIMA_PGVECTOR_SEARCH_LIMIT", 5),
+		envInt("NAIMA_PGVECTOR_EMBEDDING_DIMS", 0),
+	)
+	if err != nil {
 		fmt.Fprintln(os.Stderr, err.Error())
 		os.Exit(1)
 	}
+	defer memStore.Close()
+	memSize := envInt("NAIMA_MEMORY_MAX_CONTEXT", 20)
+	memoryInstance := memcore.InitMemorya(memSize, memStore)
+
+	agentInstance := agent.New(*name, client, llmConfig.Model, llmConfig.EmbeddingModel, memoryInstance)
+
+	apiEnabled := httpapi.IsEnabled()
+	telegramEnabled := strings.TrimSpace(os.Getenv("TELEGRAM_BOT_TOKEN")) != ""
+	if !apiEnabled && !telegramEnabled {
+		fmt.Fprintln(os.Stderr, "no integrations enabled: set TELEGRAM_BOT_TOKEN or NAIMA_API_TOKEN")
+		os.Exit(1)
+	}
+
+	var (
+		errCh   = make(chan error, 2)
+		running = 0
+	)
+
+	if apiEnabled {
+		running++
+		go func() {
+			errCh <- httpapi.RunServer(ctx, agentInstance)
+		}()
+	}
+
+	if telegramEnabled {
+		running++
+		go func() {
+			errCh <- telegram.RunBot(ctx, agentInstance)
+		}()
+	}
+
+	var firstErr error
+	for i := 0; i < running; i++ {
+		if err := <-errCh; err != nil && firstErr == nil {
+			firstErr = err
+			cancel()
+		}
+	}
+	if firstErr != nil {
+		fmt.Fprintln(os.Stderr, firstErr.Error())
+		os.Exit(1)
+	}
+}
+
+func pgvectorDSN() string {
+	if p := strings.TrimSpace(os.Getenv("NAIMA_PGVECTOR_DSN")); p != "" {
+		return p
+	}
+
+	return "postgres://naima:naima@localhost:5432/naima?sslmode=disable"
+}
+
+func envInt(key string, fallback int) int {
+	raw := strings.TrimSpace(os.Getenv(key))
+	if raw == "" {
+		return fallback
+	}
+	n, err := strconv.Atoi(raw)
+	if err != nil || n <= 0 {
+		return fallback
+	}
+
+	return n
 }
 
 func loadEnv() error {

@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 
@@ -95,7 +96,18 @@ func RunBot(ctx context.Context, agentInstance *agent.Agent) error {
 				continue
 			}
 
-			response, err := agentInstance.ProcessMessage(ctx, update.Message.Text)
+			text := strings.TrimSpace(update.Message.Text)
+			if text == "/new" || text == "/reset" {
+				response := "Memory reset. Starting a new conversation."
+				if err := agentInstance.ResetMemory(); err != nil {
+					response = fmt.Sprintf("Error: %s", err.Error())
+				}
+				msg := tgbotapi.NewMessage(update.Message.Chat.ID, response)
+				_, _ = bot.Send(msg)
+				continue
+			}
+
+			response, err := agentInstance.ProcessMessage(ctx, text)
 			if err != nil {
 				response = fmt.Sprintf("Error: %s", err.Error())
 			}
