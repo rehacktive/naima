@@ -56,14 +56,32 @@
       flex-direction: column;
       min-height: 100vh;
     }
-    .ops h3 {
-      margin: 0;
-      padding: 14px 12px;
+    .ops-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
       border-bottom: 1px solid var(--border);
+      padding: 10px 12px;
+      gap: 8px;
+    }
+    .ops-head h3 {
+      margin: 0;
+      padding: 0;
+      border: 0;
       font-size: 12px;
       letter-spacing: 0.06em;
       text-transform: uppercase;
       color: var(--muted);
+    }
+    .ops-collapse {
+      border: 1px solid var(--border);
+      background: #101a24;
+      color: var(--text);
+      border-radius: 6px;
+      font-size: 10px;
+      line-height: 1;
+      padding: 4px 6px;
+      cursor: pointer;
     }
     .ops-list {
       list-style: none;
@@ -175,6 +193,73 @@
       line-height: 1;
       padding: 4px 6px;
       cursor: pointer;
+    }
+    .memory-panel {
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: #0b1118;
+      padding: 8px;
+      min-height: 120px;
+      display: flex;
+      flex-direction: column;
+    }
+    .memory-panel.collapsed {
+      min-height: 0;
+    }
+    .memory-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      margin-bottom: 6px;
+      gap: 8px;
+    }
+    .memory-panel.collapsed .memory-head {
+      margin-bottom: 0;
+    }
+    .memory-title {
+      font-size: 10px;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+      margin: 0;
+    }
+    .memory-collapse {
+      border: 1px solid var(--border);
+      background: #101a24;
+      color: var(--text);
+      border-radius: 6px;
+      font-size: 10px;
+      line-height: 1;
+      padding: 4px 6px;
+      cursor: pointer;
+    }
+    .memory-list {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 6px;
+    }
+    .memory-item {
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 6px;
+      background: #0d141c;
+      min-width: 0;
+    }
+    .memory-key {
+      color: var(--muted);
+      font-size: 9px;
+      text-transform: uppercase;
+      letter-spacing: 0.04em;
+      margin-bottom: 3px;
+      overflow-wrap: anywhere;
+      word-break: break-word;
+    }
+    .memory-val {
+      color: var(--text);
+      font-size: 11px;
+      font-weight: 600;
+      overflow-wrap: anywhere;
+      word-break: break-word;
     }
     .tools-list {
       display: flex;
@@ -329,8 +414,18 @@
         </div>
         <div id="toolsList" class="tools-list"></div>
       </div>
+      <div class="memory-panel">
+        <div class="memory-head">
+          <p class="memory-title">Memory</p>
+          <button id="memoryCollapse" class="memory-collapse" type="button">Hide</button>
+        </div>
+        <div id="memoryList" class="memory-list"></div>
+      </div>
     </div>
-    <h3>Operations</h3>
+    <div class="ops-head">
+      <h3>Operations</h3>
+      <button id="opsCollapse" class="ops-collapse" type="button">Hide</button>
+    </div>
     <ul id="opsList" class="ops-list"></ul>
   </aside>
   </div>
@@ -343,19 +438,26 @@
     const messagesEl = document.getElementById("messages");
     const statusEl = document.getElementById("status");
     const opsListEl = document.getElementById("opsList");
+    const opsCollapseEl = document.getElementById("opsCollapse");
     const toolsPanelEl = document.querySelector(".tools-panel");
     const toolsListEl = document.getElementById("toolsList");
     const toolsCollapseEl = document.getElementById("toolsCollapse");
+    const memoryPanelEl = document.querySelector(".memory-panel");
+    const memoryListEl = document.getElementById("memoryList");
+    const memoryCollapseEl = document.getElementById("memoryCollapse");
     let newConversationOnNextSend = true;
 
     const tokenKey = "naima_api_token";
     const toolsCollapsedKey = "naima_tools_collapsed";
+    const opsCollapsedKey = "naima_ops_collapsed";
+    const memoryCollapsedKey = "naima_memory_collapsed";
     tokenEl.value = localStorage.getItem(tokenKey) || "";
 
     saveTokenBtn.addEventListener("click", () => {
       localStorage.setItem(tokenKey, tokenEl.value.trim());
       setStatus("Token saved locally.");
       loadTools();
+      loadMemoryStatus();
     });
 
     sendBtn.addEventListener("click", sendMessage);
@@ -366,15 +468,30 @@
       }
     });
     if (tokenEl.value.trim()) {
+      resetMemoryOnRefresh();
       loadTools();
+      loadMemoryStatus();
     } else {
       renderTools([]);
+      renderMemoryStatus(null);
     }
     applyToolsCollapsed(localStorage.getItem(toolsCollapsedKey) === "1");
+    applyOpsCollapsed(localStorage.getItem(opsCollapsedKey) === "1");
+    applyMemoryCollapsed(localStorage.getItem(memoryCollapsedKey) === "1");
     toolsCollapseEl.addEventListener("click", () => {
       const next = !toolsListEl.classList.contains("is-hidden");
       applyToolsCollapsed(next);
       localStorage.setItem(toolsCollapsedKey, next ? "1" : "0");
+    });
+    opsCollapseEl.addEventListener("click", () => {
+      const next = !opsListEl.classList.contains("is-hidden");
+      applyOpsCollapsed(next);
+      localStorage.setItem(opsCollapsedKey, next ? "1" : "0");
+    });
+    memoryCollapseEl.addEventListener("click", () => {
+      const next = !memoryListEl.classList.contains("is-hidden");
+      applyMemoryCollapsed(next);
+      localStorage.setItem(memoryCollapsedKey, next ? "1" : "0");
     });
 
     function addBubble(role, text) {
@@ -465,6 +582,46 @@
       }
     }
 
+    async function loadMemoryStatus() {
+      const token = tokenEl.value.trim();
+      if (!token) {
+        renderMemoryStatus(null);
+        return;
+      }
+      try {
+        const resp = await fetch("/api/memory/status", {
+          method: "GET",
+          headers: { "Authorization": "Bearer " + token }
+        });
+        if (!resp.ok) {
+          renderMemoryStatus(null);
+          return;
+        }
+        const payload = await resp.json();
+        renderMemoryStatus(payload.status || null);
+      } catch (_) {
+        renderMemoryStatus(null);
+      }
+    }
+
+    async function resetMemoryOnRefresh() {
+      const token = tokenEl.value.trim();
+      if (!token) {
+        return;
+      }
+      try {
+        const resp = await fetch("/api/memory/reset", {
+          method: "POST",
+          headers: { "Authorization": "Bearer " + token }
+        });
+        if (!resp.ok) {
+          return;
+        }
+        addOp("memory reset (page refresh)");
+      } catch (_) {
+      }
+    }
+
     function renderTools(tools) {
       toolsListEl.innerHTML = "";
       if (!tools.length) {
@@ -522,10 +679,54 @@
       }
     }
 
+    function renderMemoryStatus(status) {
+      memoryListEl.innerHTML = "";
+      if (!status) {
+        const empty = document.createElement("div");
+        empty.className = "memory-item";
+        empty.style.gridColumn = "1 / -1";
+        empty.innerHTML = '<div class="memory-key">status</div><div class="memory-val">' + (tokenEl.value.trim() ? "unavailable" : "save token to load") + "</div>";
+        memoryListEl.appendChild(empty);
+        return;
+      }
+      const entries = [
+        ["max", status.MaxContextSize],
+        ["current", status.CurrentSize],
+        ["pinned", status.PinnedCount],
+        ["unpinned", status.UnpinnedCount],
+        ["summarizer", status.HasSummarizer ? "yes" : "no"],
+        ["pending_recall", status.HasPendingRecall ? "yes" : "no"]
+      ];
+      for (const [k, v] of entries) {
+        const item = document.createElement("div");
+        item.className = "memory-item";
+        const key = document.createElement("div");
+        key.className = "memory-key";
+        key.textContent = k;
+        const val = document.createElement("div");
+        val.className = "memory-val";
+        val.textContent = String(v);
+        item.appendChild(key);
+        item.appendChild(val);
+        memoryListEl.appendChild(item);
+      }
+    }
+
     function applyToolsCollapsed(collapsed) {
       toolsListEl.classList.toggle("is-hidden", !!collapsed);
       toolsPanelEl.classList.toggle("collapsed", !!collapsed);
       toolsCollapseEl.textContent = collapsed ? "Show" : "Hide";
+    }
+
+    function applyOpsCollapsed(collapsed) {
+      opsListEl.classList.toggle("is-hidden", !!collapsed);
+      opsCollapseEl.textContent = collapsed ? "Show" : "Hide";
+    }
+
+    function applyMemoryCollapsed(collapsed) {
+      memoryListEl.classList.toggle("is-hidden", !!collapsed);
+      memoryPanelEl.classList.toggle("collapsed", !!collapsed);
+      memoryCollapseEl.textContent = collapsed ? "Show" : "Hide";
     }
 
     async function sendMessage() {
@@ -586,6 +787,7 @@
 
         if (streamState.errorEvent) {
           setStatus("Request failed.");
+          loadMemoryStatus();
         } else if (!streamState.doneEvent) {
           const msg = "Stream interrupted before completion.";
           if (!aiRaw) {
@@ -594,8 +796,10 @@
           }
           addOp("error: " + msg);
           setStatus(msg);
+          loadMemoryStatus();
         } else {
           setStatus("Done.");
+          loadMemoryStatus();
         }
       } catch (err) {
         setStatus("Stream error: " + (err?.message || String(err)));

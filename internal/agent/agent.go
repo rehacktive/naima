@@ -336,6 +336,16 @@ func (a *Agent) ResetMemory() error {
 	return nil
 }
 
+func (a *Agent) MemoryStatus() (memcore.Status, error) {
+	if a.Memory == nil {
+		return memcore.Status{}, fmt.Errorf("memory is not configured")
+	}
+
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	return a.Memory.GetStatus(), nil
+}
+
 func (a *Agent) ListTools() []ToolState {
 	a.mu.Lock()
 	defer a.mu.Unlock()

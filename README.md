@@ -84,6 +84,78 @@ curl -sS -X POST "http://localhost:8080/api/tools" \
 	-d '{"name":"web_search","enabled":false}'
 ```
 
+## Tools
+
+Naima can call tools during model responses. You can enable/disable tools at
+runtime via `/api/tools` or from the web UI.
+
+### Available tools
+
+| Tool | What it does | Typical use |
+| --- | --- | --- |
+| `time` | Returns current local/UTC timestamp | "What time is it?" |
+| `web_search` | Searches web/news/images via local SearxNG | Fresh facts, current events, citations |
+| `playwright` | Automates a browser session and extracts page data | Navigate pages, click/type/press, scrape content |
+| `long_memory` | Recalls relevant past conversations and summarizes them | "What did we decide about X?" |
+
+### `time`
+
+- No parameters required.
+- Returns JSON with local and UTC timestamps.
+
+### `web_search`
+
+Required:
+- `query` (`string`)
+
+Optional:
+- `categories` (`[]string`) examples: `["web"]`, `["news"]`, `["images"]`
+- `engines` (`[]string`) examples: `["duckduckgo"]`
+- `time_range` (`string`) one of `day|month|year`
+- `language` (`string`) example: `en-US`
+- `limit` (`int`) max results to return
+
+### `playwright`
+
+Browser automation tool backed by `playwright-go`.
+
+Required:
+- `operation` (`string`)
+
+Supported operations:
+- `goto|navigate`: open URL and return scrape output
+- `scrape`: return current page text/title
+- `click`: click selector, then scrape
+- `type`: fill selector with text, then scrape
+- `press`: key press on selector (defaults to `Enter` if no value), then scrape
+- `evaluate`: run JavaScript and return result
+- `screenshot`: return base64 PNG
+- `snapshot_for_ai`: best-effort call to hidden runtime helper if available
+- `close|reset`: close Playwright session
+
+Parameters:
+- `url` (`string`): required for first call and for `goto|navigate`
+- `selector` (`string`): required for `click|type|press`
+- `value` (`string`): text for `type`, key for `press`
+- `script` (`string`): required for `evaluate`
+- `wait_ms` (`int`): optional post-action wait
+- `full_page` (`bool`): optional for `screenshot`
+
+Recommended flow:
+1. `goto` with `url`
+2. Run one or more actions (`click`, `type`, `press`)
+3. Use `scrape`/`evaluate`/`screenshot` as needed
+4. `close` when done
+
+### `long_memory`
+
+Required:
+- `something` (`string`) short topic to recall
+
+Behavior:
+- Finds related past messages via embeddings search
+- Produces a summary (LLM-based, with fallback)
+
 To start a new conversation (clear Memorya context) with REST:
 
 ```sh
@@ -97,6 +169,13 @@ or:
 
 ```sh
 curl -sS -X POST "http://localhost:8080/api/memory/reset" \
+	-H "Authorization: Bearer $NAIMA_API_TOKEN"
+```
+
+Get current Memorya runtime status:
+
+```sh
+curl -sS "http://localhost:8080/api/memory/status" \
 	-H "Authorization: Bearer $NAIMA_API_TOKEN"
 ```
 
@@ -141,12 +220,7 @@ Notes:
 - In Telegram, send `/new` or `/reset` to clear the current Memorya context.
 - Telegram draft streaming is optional and disabled by default.
 - On each new incoming message, Naima computes embeddings before storing it in Memorya.
-- Tools available to the model: `time`, `web_search`, `playwright`, `long_memory`.
-- `web_search` supports optional `categories`, `engines`, and `time_range`
-  (`day|month|year`) in addition to `query`.
-- `playwright` supports browser automation/scraping operations:
-  `scrape`, `click`, `type`, `press`, `evaluate`, `screenshot`.
-- `long_memory` uses `something` as input and returns a summary of relevant
-  previous messages from the memory database.
+- The web UI includes a collapsible Memory panel (between Tools and Operations)
+  showing Memorya `GetStatus()` fields.
 - `docker/searxng/settings.yml` is mounted into the SearxNG container and
   enables `json` output so the `web_search` tool can parse results.

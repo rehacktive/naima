@@ -213,6 +213,23 @@ func RunServer(ctx context.Context, agentInstance *agent.Agent) error {
 		}
 		writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 	})
+	mux.HandleFunc("/api/memory/status", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+			return
+		}
+		if !authorizeRequest(r, cfg.Token) {
+			writeError(w, http.StatusUnauthorized, "unauthorized")
+			return
+		}
+
+		status, err := agentInstance.MemoryStatus()
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"status": status})
+	})
 
 	srv := &http.Server{
 		Addr:              cfg.Addr,
