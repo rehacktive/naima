@@ -11,7 +11,7 @@ Naima is a Go-based AI agent.
 ## Run
 
 ```sh
-docker compose up -d pgvector redis searxng pinchtab
+docker compose up -d pgvector redis searxng
 cp .env.example .env
 # Edit .env and set OPENAI_API_KEY, OPENAI_MODEL, and OPENAI_EMBEDDING_MODEL
 # Set TELEGRAM_BOT_TOKEN to enable Telegram, or NAIMA_API_TOKEN to enable the REST API
@@ -128,10 +128,6 @@ Optional environment variables:
   ivfflat index creation (default `0`).
 - `NAIMA_SEARX_URL`: local Searx base URL used by the `web_search` tool
   (default `http://localhost:8081`).
-- `NAIMA_PINCHTAB_URL`: local PinchTab base URL used by the `pinchtab` tool
-  (default `http://localhost:9867`).
-- `NAIMA_PINCHTAB_TOKEN`: optional PinchTab auth token passed as
-  `Authorization: Bearer` and `X-Bridge-Token`.
 - `NAIMA_PLAYWRIGHT_HEADLESS`: run Playwright in headless mode (`true`/`false`,
   default `true`).
 - `NAIMA_PLAYWRIGHT_TIMEOUT_MS`: Playwright navigation/action timeout in
@@ -145,11 +141,9 @@ Notes:
 - In Telegram, send `/new` or `/reset` to clear the current Memorya context.
 - Telegram draft streaming is optional and disabled by default.
 - On each new incoming message, Naima computes embeddings before storing it in Memorya.
-- Tools available to the model: `time`, `web_search`, `pinchtab`, `playwright`, `long_memory`.
+- Tools available to the model: `time`, `web_search`, `playwright`, `long_memory`.
 - `web_search` supports optional `categories`, `engines`, and `time_range`
   (`day|month|year`) in addition to `query`.
-- `pinchtab` supports browser automation/scraping operations:
-  `navigate`, `action`, `evaluate`, `text`, `snapshot`, `scrape`.
 - `playwright` supports browser automation/scraping operations:
   `scrape`, `click`, `type`, `press`, `evaluate`, `screenshot`.
 - `long_memory` uses `something` as input and returns a summary of relevant

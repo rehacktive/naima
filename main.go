@@ -93,7 +93,6 @@ func main() {
 		[]tools.Tool{
 			tools.NewTimeTool(),
 			tools.NewWebSearchTool(searxURL()),
-			tools.NewPinchTabTool(pinchtabURL(), pinchtabToken()),
 			tools.NewPlaywrightTool(playwrightHeadless(), envInt("NAIMA_PLAYWRIGHT_TIMEOUT_MS", 30000)),
 			tools.NewLongMemoryTool(client, llmConfig.Model, llmConfig.EmbeddingModel, memStore),
 		},
@@ -162,18 +161,6 @@ func promptPath() string {
 	}
 
 	return "prompt.txt"
-}
-
-func pinchtabURL() string {
-	if p := strings.TrimSpace(os.Getenv("NAIMA_PINCHTAB_URL")); p != "" {
-		return p
-	}
-
-	return "http://localhost:9867"
-}
-
-func pinchtabToken() string {
-	return strings.TrimSpace(os.Getenv("NAIMA_PINCHTAB_TOKEN"))
 }
 
 func playwrightHeadless() bool {

@@ -132,7 +132,7 @@ func (t *PlaywrightTool) GetFunction() func(params string) string {
 				}
 				val, err := page.Evaluate(script)
 				if err != nil {
-					return "", errTool("evaluate failed: " + err.Error())
+					return "", errTool("evaluate failed: " + normalizeEvaluateError(err.Error()))
 				}
 				payload := map[string]any{
 					"url":   currentURL,
@@ -354,4 +354,13 @@ type toolError struct {
 
 func (e *toolError) Error() string {
 	return e.message
+}
+
+func normalizeEvaluateError(raw string) string {
+	msg := strings.TrimSpace(raw)
+	l := strings.ToLower(msg)
+	if strings.Contains(l, "cannot read properties of null") {
+		return "script tried to access an element that does not exist (null). Verify selector first, or prefer playwright operations (click/type/press) instead of direct DOM click in evaluate."
+	}
+	return msg
 }
