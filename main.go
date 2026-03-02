@@ -94,6 +94,7 @@ func main() {
 			tools.NewTimeTool(),
 			tools.NewWebSearchTool(searxURL()),
 			tools.NewPinchTabTool(pinchtabURL(), pinchtabToken()),
+			tools.NewPlaywrightTool(playwrightHeadless(), envInt("NAIMA_PLAYWRIGHT_TIMEOUT_MS", 30000)),
 			tools.NewLongMemoryTool(client, llmConfig.Model, llmConfig.EmbeddingModel, memStore),
 		},
 	)
@@ -173,6 +174,18 @@ func pinchtabURL() string {
 
 func pinchtabToken() string {
 	return strings.TrimSpace(os.Getenv("NAIMA_PINCHTAB_TOKEN"))
+}
+
+func playwrightHeadless() bool {
+	raw := strings.ToLower(strings.TrimSpace(os.Getenv("NAIMA_PLAYWRIGHT_HEADLESS")))
+	switch raw {
+	case "", "1", "true", "yes", "on":
+		return true
+	case "0", "false", "no", "off":
+		return false
+	default:
+		return true
+	}
 }
 
 func loadSystemPrompt() (string, error) {

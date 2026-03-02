@@ -132,6 +132,10 @@ Optional environment variables:
   (default `http://localhost:9867`).
 - `NAIMA_PINCHTAB_TOKEN`: optional PinchTab auth token passed as
   `Authorization: Bearer` and `X-Bridge-Token`.
+- `NAIMA_PLAYWRIGHT_HEADLESS`: run Playwright in headless mode (`true`/`false`,
+  default `true`).
+- `NAIMA_PLAYWRIGHT_TIMEOUT_MS`: Playwright navigation/action timeout in
+  milliseconds (default `30000`).
 - `NAIMA_UI_DIR`: directory containing `index.html` for the built-in web UI
   (default `./internal/httpapi/ui`).
 
@@ -141,11 +145,13 @@ Notes:
 - In Telegram, send `/new` or `/reset` to clear the current Memorya context.
 - Telegram draft streaming is optional and disabled by default.
 - On each new incoming message, Naima computes embeddings before storing it in Memorya.
-- Tools available to the model: `time`, `web_search`, `pinchtab`, `long_memory`.
+- Tools available to the model: `time`, `web_search`, `pinchtab`, `playwright`, `long_memory`.
 - `web_search` supports optional `categories`, `engines`, and `time_range`
   (`day|month|year`) in addition to `query`.
 - `pinchtab` supports browser automation/scraping operations:
   `navigate`, `action`, `evaluate`, `text`, `snapshot`, `scrape`.
+- `playwright` supports browser automation/scraping operations:
+  `scrape`, `click`, `type`, `press`, `evaluate`, `screenshot`.
 - `long_memory` uses `something` as input and returns a summary of relevant
   previous messages from the memory database.
 - `docker/searxng/settings.yml` is mounted into the SearxNG container and
