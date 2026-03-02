@@ -2,7 +2,9 @@ package agent
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"io"
 	"strings"
 	"sync"
 	"time"
@@ -47,6 +49,18 @@ func New(name string, systemPrompt string, client *openai.Client, model string, 
 }
 
 func (a *Agent) ProcessMessage(ctx context.Context, input string) (string, error) {
+	return a.processMessage(ctx, input, nil, nil)
+}
+
+func (a *Agent) ProcessMessageStream(ctx context.Context, input string, onDelta func(string)) (string, error) {
+	return a.processMessage(ctx, input, onDelta, nil)
+}
+
+func (a *Agent) ProcessMessageStreamWithOps(ctx context.Context, input string, onDelta func(string), onOp func(string)) (string, error) {
+	return a.processMessage(ctx, input, onDelta, onOp)
+}
+
+func (a *Agent) processMessage(ctx context.Context, input string, onDelta func(string), onOp func(string)) (string, error) {
 	startedAt := time.Now()
 	select {
 	case <-ctx.Done():
@@ -75,6 +89,7 @@ func (a *Agent) ProcessMessage(ctx context.Context, input string) (string, error
 
 	normalizedInput := strings.TrimSpace(input)
 	log.Infof("[agent] message received chars=%d", len(normalizedInput))
+	emitOp(onOp, "message received")
 	embResp, err := a.Client.CreateEmbeddings(ctx, openai.EmbeddingRequest{
 		Input: []string{normalizedInput},
 		Model: openai.EmbeddingModel(a.EmbeddingModel),
@@ -87,6 +102,7 @@ func (a *Agent) ProcessMessage(ctx context.Context, input string) (string, error
 	}
 	emb := append([]float32(nil), embResp.Data[0].Embedding...)
 	log.Infof("[agent] embeddings generated dim=%d", len(emb))
+	emitOp(onOp, fmt.Sprintf("embeddings generated (dim=%d)", len(emb)))
 
 	now := time.Now().UTC()
 	a.Memory.AddMessage(memstorage.Message{
@@ -96,6 +112,7 @@ func (a *Agent) ProcessMessage(ctx context.Context, input string) (string, error
 		CreatedAt:  &now,
 	}, false)
 	log.Infof("[agent] user message saved to memory")
+	emitOp(onOp, "user message saved")
 
 	messages := make([]openai.ChatCompletionMessage, 0, len(a.Memory.GetMessages())+1)
 	messages = append(messages, openai.ChatCompletionMessage{
@@ -117,21 +134,15 @@ func (a *Agent) ProcessMessage(ctx context.Context, input string) (string, error
 		req.Tools = toOpenAITools(a.Tools)
 	}
 	log.Infof("[agent] sending model request context_messages=%d tools=%d", len(messages), len(req.Tools))
+	emitOp(onOp, "model request started")
 
-	response, err := a.Client.CreateChatCompletion(
-		ctx,
-		req,
-	)
+	msg, err := a.runModel(ctx, req, onDelta)
 	if err != nil {
 		return "", fmt.Errorf("llm request failed: %w", err)
 	}
-	if len(response.Choices) == 0 {
-		return "", fmt.Errorf("llm returned no choices")
-	}
-
-	msg := response.Choices[0].Message
 	if len(msg.ToolCalls) > 0 {
 		log.Infof("[agent] model requested tool calls count=%d", len(msg.ToolCalls))
+		emitOp(onOp, fmt.Sprintf("tool calls requested (%d)", len(msg.ToolCalls)))
 		for _, call := range msg.ToolCalls {
 			tool, ok := a.Tools[call.Function.Name]
 			if !ok {
@@ -139,6 +150,7 @@ func (a *Agent) ProcessMessage(ctx context.Context, input string) (string, error
 			}
 
 			log.Infof("[agent] executing tool name=%s immediate=%t", call.Function.Name, tool.IsImmediate())
+			emitOp(onOp, fmt.Sprintf("executing tool: %s", call.Function.Name))
 			out := tool.GetFunction()(call.Function.Arguments)
 			if tool.IsImmediate() {
 				now = time.Now().UTC()
@@ -148,6 +160,7 @@ func (a *Agent) ProcessMessage(ctx context.Context, input string) (string, error
 					CreatedAt: &now,
 				}, false)
 				log.Infof("[agent] replied via immediate tool name=%s elapsed=%s", call.Function.Name, time.Since(startedAt).Round(time.Millisecond))
+				emitOp(onOp, "reply sent (immediate tool)")
 				return out, nil
 			}
 
@@ -171,15 +184,12 @@ func (a *Agent) ProcessMessage(ctx context.Context, input string) (string, error
 			secondReq.Tools = toOpenAITools(a.Tools)
 		}
 		log.Infof("[agent] sending follow-up model request after tool execution")
+		emitOp(onOp, "model follow-up after tools")
 
-		secondResponse, err := a.Client.CreateChatCompletion(ctx, secondReq)
+		msg, err = a.runModel(ctx, secondReq, onDelta)
 		if err != nil {
 			return "", fmt.Errorf("llm request failed after tool execution: %w", err)
 		}
-		if len(secondResponse.Choices) == 0 {
-			return "", fmt.Errorf("llm returned no choices after tool execution")
-		}
-		msg = secondResponse.Choices[0].Message
 	}
 
 	answer := strings.TrimSpace(msg.Content)
@@ -190,8 +200,98 @@ func (a *Agent) ProcessMessage(ctx context.Context, input string) (string, error
 		CreatedAt: &now,
 	}, false)
 	log.Infof("[agent] assistant message saved; replied chars=%d elapsed=%s", len(answer), time.Since(startedAt).Round(time.Millisecond))
+	emitOp(onOp, "assistant replied")
 
 	return answer, nil
+}
+
+func (a *Agent) runModel(ctx context.Context, req openai.ChatCompletionRequest, onDelta func(string)) (openai.ChatCompletionMessage, error) {
+	if onDelta == nil {
+		response, err := a.Client.CreateChatCompletion(ctx, req)
+		if err != nil {
+			return openai.ChatCompletionMessage{}, err
+		}
+		if len(response.Choices) == 0 {
+			return openai.ChatCompletionMessage{}, fmt.Errorf("llm returned no choices")
+		}
+		return response.Choices[0].Message, nil
+	}
+
+	stream, err := a.Client.CreateChatCompletionStream(ctx, req)
+	if err != nil {
+		return openai.ChatCompletionMessage{}, err
+	}
+	defer stream.Close()
+
+	msg := openai.ChatCompletionMessage{Role: openai.ChatMessageRoleAssistant}
+	toolCallsByIndex := make(map[int]*openai.ToolCall)
+	order := make([]int, 0)
+
+	for {
+		chunk, err := stream.Recv()
+		if errors.Is(err, io.EOF) {
+			break
+		}
+		if err != nil {
+			return openai.ChatCompletionMessage{}, err
+		}
+		if len(chunk.Choices) == 0 {
+			continue
+		}
+
+		for _, choice := range chunk.Choices {
+			delta := choice.Delta
+			if delta.Role != "" {
+				msg.Role = delta.Role
+			}
+			if delta.Content != "" {
+				msg.Content += delta.Content
+				onDelta(delta.Content)
+			}
+			for _, deltaCall := range delta.ToolCalls {
+				idx := 0
+				if deltaCall.Index != nil {
+					idx = *deltaCall.Index
+				}
+
+				existing, ok := toolCallsByIndex[idx]
+				if !ok {
+					tc := openai.ToolCall{
+						Type:     deltaCall.Type,
+						ID:       deltaCall.ID,
+						Function: openai.FunctionCall{},
+					}
+					toolCallsByIndex[idx] = &tc
+					existing = &tc
+					order = append(order, idx)
+				}
+
+				if deltaCall.ID != "" {
+					existing.ID = deltaCall.ID
+				}
+				if deltaCall.Type != "" {
+					existing.Type = deltaCall.Type
+				}
+				if deltaCall.Function.Name != "" {
+					existing.Function.Name += deltaCall.Function.Name
+				}
+				if deltaCall.Function.Arguments != "" {
+					existing.Function.Arguments += deltaCall.Function.Arguments
+				}
+			}
+		}
+	}
+
+	if len(order) > 0 {
+		msg.ToolCalls = make([]openai.ToolCall, 0, len(order))
+		for _, idx := range order {
+			if tc := toolCallsByIndex[idx]; tc != nil {
+				msg.ToolCalls = append(msg.ToolCalls, *tc)
+			}
+		}
+	}
+
+	return msg, nil
 }
 
 func (a *Agent) ResetMemory() error {
@@ -240,4 +340,10 @@ func toOpenAITools(toolset map[string]tools.Tool) []openai.Tool {
 	}
 
 	return ret
+}
+
+func emitOp(onOp func(string), message string) {
+	if onOp != nil {
+		onOp(message)
+	}
 }

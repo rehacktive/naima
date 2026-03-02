@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 	log "github.com/sirupsen/logrus"
@@ -37,6 +38,8 @@ func RunBot(ctx context.Context, agentInstance *agent.Agent) error {
 	updateConfig := tgbotapi.NewUpdate(0)
 	updateConfig.Timeout = 30
 	updates := bot.GetUpdatesChan(updateConfig)
+	streamEnabled := isTelegramStreamEnabled()
+	log.Infof("[telegram] draft streaming enabled=%t", streamEnabled)
 
 	sessionPath := sessionFilePath()
 	session, err := loadSession(sessionPath)
@@ -109,7 +112,17 @@ func RunBot(ctx context.Context, agentInstance *agent.Agent) error {
 				continue
 			}
 
-			response, err := agentInstance.ProcessMessage(ctx, text)
+			var (
+				response string
+				err      error
+			)
+			if streamEnabled {
+				streamer := newDraftStreamer(bot, update.Message.Chat.ID)
+				response, err = agentInstance.ProcessMessageStream(ctx, text, streamer.OnDelta)
+				streamer.Flush()
+			} else {
+				response, err = agentInstance.ProcessMessage(ctx, text)
+			}
 			if err != nil {
 				response = fmt.Sprintf("Error: %s", err.Error())
 			}
@@ -118,6 +131,88 @@ func RunBot(ctx context.Context, agentInstance *agent.Agent) error {
 			_, _ = bot.Send(msg)
 		}
 	}
+}
+
+func isTelegramStreamEnabled() bool {
+	raw := strings.ToLower(strings.TrimSpace(os.Getenv("NAIMA_TELEGRAM_STREAM")))
+	switch raw {
+	case "1", "true", "yes", "on":
+		return true
+	default:
+		return false
+	}
+}
+
+type draftStreamer struct {
+	bot      *tgbotapi.BotAPI
+	chatID   int64
+	draftID  int64
+	buffer   strings.Builder
+	lastSent time.Time
+	enabled  bool
+}
+
+func newDraftStreamer(bot *tgbotapi.BotAPI, chatID int64) *draftStreamer {
+	return &draftStreamer{
+		bot:     bot,
+		chatID:  chatID,
+		draftID: time.Now().UnixMilli(),
+		enabled: true,
+	}
+}
+
+func (s *draftStreamer) OnDelta(delta string) {
+	if strings.TrimSpace(delta) == "" {
+		return
+	}
+	s.buffer.WriteString(delta)
+	if !s.enabled {
+		return
+	}
+	if !s.lastSent.IsZero() && time.Since(s.lastSent) < 250*time.Millisecond {
+		return
+	}
+	if err := s.sendCurrent(); err != nil {
+		log.Warnf("[telegram] sendMessageDraft failed: %v", err)
+		s.enabled = false
+		return
+	}
+	s.lastSent = time.Now()
+}
+
+func (s *draftStreamer) Flush() {
+	if !s.enabled {
+		return
+	}
+	if strings.TrimSpace(s.buffer.String()) == "" {
+		return
+	}
+	if err := s.sendCurrent(); err != nil {
+		log.Warnf("[telegram] final sendMessageDraft failed: %v", err)
+		s.enabled = false
+	}
+}
+
+func (s *draftStreamer) sendCurrent() error {
+	text := strings.TrimSpace(s.buffer.String())
+	if text == "" {
+		return nil
+	}
+
+	params := tgbotapi.Params{}
+	params.AddNonZero64("chat_id", s.chatID)
+	params.AddNonZero64("draft_id", s.draftID)
+	params["text"] = text
+
+	resp, err := s.bot.MakeRequest("sendMessageDraft", params)
+	if err != nil {
+		return fmt.Errorf("telegram request failed: %w", err)
+	}
+	if !resp.Ok {
+		return fmt.Errorf("telegram api error (%d): %s", resp.ErrorCode, resp.Description)
+	}
+
+	return nil
 }
 
 func sessionFilePath() string {

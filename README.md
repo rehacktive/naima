@@ -28,6 +28,17 @@ with the agent.
 Set `NAIMA_API_TOKEN` to enable the REST endpoint. Optionally set `NAIMA_API_ADDR`
 to change the listen address (default `:8080`).
 
+## Web UI
+
+Naima serves a built-in chat UI at:
+
+- [http://localhost:8080/](http://localhost:8080/)
+
+Enter your API token in the page, then chat. Responses stream from
+`/api/messages/stream`.
+The UI file is served from disk (`internal/httpapi/ui/index.html`) so page
+changes are picked up without restarting Naima.
+
 Example request:
 
 ```sh
@@ -36,6 +47,23 @@ curl -sS -X POST "http://localhost:8080/api/messages" \
 	-H "Content-Type: application/json" \
 	-d '{"message":"Hello"}'
 ```
+
+### REST Streaming
+
+For token streaming, use the SSE endpoint:
+
+```sh
+curl -N -X POST "http://localhost:8080/api/messages/stream" \
+	-H "Authorization: Bearer $NAIMA_API_TOKEN" \
+	-H "Content-Type: application/json" \
+	-d '{"message":"Hello"}'
+```
+
+Stream events:
+- `start`
+- `delta` (token chunks)
+- `done` (final response)
+- `error`
 
 To start a new conversation (clear Memorya context) with REST:
 
@@ -67,6 +95,9 @@ pgvector.
 
 Optional environment variables:
 
+- `NAIMA_TELEGRAM_STREAM`: enable Telegram draft streaming via
+  `sendMessageDraft` (`true`/`1`/`yes`/`on`). Default `false` (normal
+  `sendMessage` only).
 - `NAIMA_MEMORY_MAX_CONTEXT`: max number of active context messages kept in
   Memorya (default `20`).
 - `NAIMA_PGVECTOR_DSN`: PostgreSQL DSN for pgvector storage
@@ -78,11 +109,14 @@ Optional environment variables:
   ivfflat index creation (default `0`).
 - `NAIMA_SEARX_URL`: local Searx base URL used by the `web_search` tool
   (default `http://localhost:8081`).
+- `NAIMA_UI_DIR`: directory containing `index.html` for the built-in web UI
+  (default `./internal/httpapi/ui`).
 
 Notes:
 
 - Memorya active context starts empty on every process restart.
 - In Telegram, send `/new` or `/reset` to clear the current Memorya context.
+- Telegram draft streaming is optional and disabled by default.
 - On each new incoming message, Naima computes embeddings before storing it in Memorya.
 - Tools available to the model: `time`, `web_search`, `long_memory`.
 - `web_search` supports optional `categories`, `engines`, and `time_range`
