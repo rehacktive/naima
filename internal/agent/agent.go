@@ -17,6 +17,7 @@ import (
 
 type Agent struct {
 	Name           string
+	SystemPrompt   string
 	Client         *openai.Client
 	Model          string
 	EmbeddingModel string
@@ -25,7 +26,7 @@ type Agent struct {
 	mu             sync.Mutex
 }
 
-func New(name string, client *openai.Client, model string, embeddingModel string, memory *memcore.Memorya, toolset []tools.Tool) *Agent {
+func New(name string, systemPrompt string, client *openai.Client, model string, embeddingModel string, memory *memcore.Memorya, toolset []tools.Tool) *Agent {
 	toolMap := make(map[string]tools.Tool, len(toolset))
 	for _, tool := range toolset {
 		if tool == nil {
@@ -36,6 +37,7 @@ func New(name string, client *openai.Client, model string, embeddingModel string
 
 	return &Agent{
 		Name:           name,
+		SystemPrompt:   strings.TrimSpace(systemPrompt),
 		Client:         client,
 		Model:          model,
 		EmbeddingModel: embeddingModel,
@@ -57,6 +59,9 @@ func (a *Agent) ProcessMessage(ctx context.Context, input string) (string, error
 	}
 	if a.Model == "" {
 		return "", fmt.Errorf("llm model is not configured")
+	}
+	if a.SystemPrompt == "" {
+		return "", fmt.Errorf("system prompt is not configured")
 	}
 	if a.EmbeddingModel == "" {
 		return "", fmt.Errorf("embedding model is not configured")
@@ -95,7 +100,7 @@ func (a *Agent) ProcessMessage(ctx context.Context, input string) (string, error
 	messages := make([]openai.ChatCompletionMessage, 0, len(a.Memory.GetMessages())+1)
 	messages = append(messages, openai.ChatCompletionMessage{
 		Role:    openai.ChatMessageRoleSystem,
-		Content: fmt.Sprintf("You are %s, a helpful AI agent.", strings.TrimSpace(a.Name)),
+		Content: a.SystemPrompt,
 	})
 	for _, msg := range a.Memory.GetMessages() {
 		messages = append(messages, openai.ChatCompletionMessage{

@@ -9,6 +9,7 @@ import (
 
 	"github.com/jackc/pgx/v5/pgxpool"
 	memstorage "github.com/rehacktive/memorya/storage"
+	log "github.com/sirupsen/logrus"
 )
 
 const (
@@ -111,10 +112,12 @@ func (s *PGVectorStorage) SearchRelatedMessages(queryEmbeddings []float32) ([]me
 			SELECT id, created_at, role, content, cost, pinned
 			FROM memory_messages
 			WHERE embeddings IS NOT NULL
+			  AND vector_dims(embeddings) = $2
 			ORDER BY embeddings <=> $1::vector
-			LIMIT $2
+			LIMIT $3
 		`,
 		vectorLiteral(queryEmbeddings),
+		len(queryEmbeddings),
 		s.searchLimit,
 	)
 	if err != nil {
@@ -164,7 +167,41 @@ func (s *PGVectorStorage) initSchema(ctx context.Context) error {
 			return fmt.Errorf("init pgvector schema failed: %w", err)
 		}
 	}
+
+	// Always keep the column flexible first so changing embedding models/dims
+	// does not break startup or inserts.
+	if _, err := s.pool.Exec(ctx, `DROP INDEX IF EXISTS memory_messages_embeddings_idx`); err != nil {
+		return fmt.Errorf("init pgvector schema failed: %w", err)
+	}
+	if _, err := s.pool.Exec(
+		ctx,
+		`ALTER TABLE memory_messages
+		 ALTER COLUMN embeddings TYPE vector
+		 USING embeddings::vector`,
+	); err != nil {
+		return fmt.Errorf("init pgvector schema failed: %w", err)
+	}
+
 	if s.vectorDims <= 0 {
+		return nil
+	}
+
+	var mismatched int
+	if err := s.pool.QueryRow(
+		ctx,
+		`SELECT COUNT(*) FROM memory_messages
+		 WHERE embeddings IS NOT NULL
+		   AND vector_dims(embeddings) <> $1`,
+		s.vectorDims,
+	).Scan(&mismatched); err != nil {
+		return fmt.Errorf("init pgvector schema failed: %w", err)
+	}
+	if mismatched > 0 {
+		log.Warnf(
+			"[memory] detected %d messages with embedding dims different from %d; running without ivfflat index",
+			mismatched,
+			s.vectorDims,
+		)
 		return nil
 	}
 
@@ -189,6 +226,7 @@ func (s *PGVectorStorage) initSchema(ctx context.Context) error {
 	); err != nil {
 		return fmt.Errorf("init pgvector schema failed: %w", err)
 	}
+	log.Infof("[memory] pgvector ivfflat index enabled for embeddings dim=%d", s.vectorDims)
 
 	return nil
 }

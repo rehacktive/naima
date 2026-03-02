@@ -63,6 +63,11 @@ func main() {
 	}
 
 	client := llm.NewOpenAIClient(llmConfig)
+	systemPrompt, err := loadSystemPrompt()
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err.Error())
+		os.Exit(1)
+	}
 
 	memStore, err := memory.NewPGVectorStorage(
 		ctx,
@@ -80,6 +85,7 @@ func main() {
 
 	agentInstance := agent.New(
 		*name,
+		systemPrompt,
 		client,
 		llmConfig.Model,
 		llmConfig.EmbeddingModel,
@@ -146,6 +152,28 @@ func searxURL() string {
 	}
 
 	return "http://localhost:8081"
+}
+
+func promptPath() string {
+	if p := strings.TrimSpace(os.Getenv("NAIMA_PROMPT_FILE")); p != "" {
+		return p
+	}
+
+	return "prompt.txt"
+}
+
+func loadSystemPrompt() (string, error) {
+	path := promptPath()
+	data, err := os.ReadFile(path)
+	if err != nil {
+		return "", fmt.Errorf("read system prompt file failed (%s): %w", path, err)
+	}
+	prompt := strings.TrimSpace(string(data))
+	if prompt == "" {
+		return "", fmt.Errorf("system prompt file is empty: %s", path)
+	}
+
+	return prompt, nil
 }
 
 func envInt(key string, fallback int) int {
