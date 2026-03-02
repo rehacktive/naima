@@ -39,6 +39,11 @@ type streamEvent struct {
 	Error   string `json:"error,omitempty"`
 }
 
+type toolUpdateRequest struct {
+	Name    string `json:"name"`
+	Enabled bool   `json:"enabled"`
+}
+
 func IsEnabled() bool {
 	return strings.TrimSpace(os.Getenv("NAIMA_API_TOKEN")) != "" || strings.TrimSpace(os.Getenv("NAIMA_API_ADDR")) != ""
 }
@@ -51,6 +56,34 @@ func RunServer(ctx context.Context, agentInstance *agent.Agent) error {
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/", serveUI)
+	mux.HandleFunc("/api/tools", func(w http.ResponseWriter, r *http.Request) {
+		if !authorizeRequest(r, cfg.Token) {
+			writeError(w, http.StatusUnauthorized, "unauthorized")
+			return
+		}
+		switch r.Method {
+		case http.MethodGet:
+			writeJSON(w, http.StatusOK, map[string]any{"tools": agentInstance.ListTools()})
+			return
+		case http.MethodPost:
+			var req toolUpdateRequest
+			decoder := json.NewDecoder(r.Body)
+			decoder.DisallowUnknownFields()
+			if err := decoder.Decode(&req); err != nil {
+				writeError(w, http.StatusBadRequest, "invalid request body")
+				return
+			}
+			if err := agentInstance.SetToolEnabled(req.Name, req.Enabled); err != nil {
+				writeError(w, http.StatusBadRequest, err.Error())
+				return
+			}
+			writeJSON(w, http.StatusOK, map[string]any{"tools": agentInstance.ListTools()})
+			return
+		default:
+			writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+			return
+		}
+	})
 	mux.HandleFunc("/api/messages", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			writeError(w, http.StatusMethodNotAllowed, "method not allowed")
@@ -150,11 +183,17 @@ func RunServer(ctx context.Context, agentInstance *agent.Agent) error {
 
 		response, err := agentInstance.ProcessMessageStreamWithOps(r.Context(), req.Message, onDelta, onOp)
 		if err != nil {
-			_ = writeSSE(w, "error", streamEvent{Type: "error", Error: err.Error()})
+			log.Errorf("[http] stream request failed remote=%s err=%v", r.RemoteAddr, err)
+			errMsg := err.Error()
+			if errors.Is(err, context.Canceled) || strings.Contains(strings.ToLower(errMsg), "context canceled") {
+				errMsg = "request canceled while waiting for model response; please retry"
+			}
+			_ = writeSSE(w, "error", streamEvent{Type: "error", Error: errMsg})
 			flusher.Flush()
 			return
 		}
 
+		log.Infof("[http] stream request completed remote=%s chars=%d", r.RemoteAddr, len(strings.TrimSpace(response)))
 		_ = writeSSE(w, "done", streamEvent{Type: "done", Content: response})
 		flusher.Flush()
 	})
@@ -180,8 +219,10 @@ func RunServer(ctx context.Context, agentInstance *agent.Agent) error {
 		Handler:           mux,
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       15 * time.Second,
-		WriteTimeout:      60 * time.Second,
-		IdleTimeout:       60 * time.Second,
+		// Keep SSE streams alive for long-running tool/model flows.
+		// Per-request contexts still handle cancellation on client disconnect.
+		WriteTimeout: 0,
+		IdleTimeout:  60 * time.Second,
 	}
 
 	shutdownErr := make(chan error, 1)

@@ -11,7 +11,7 @@ Naima is a Go-based AI agent.
 ## Run
 
 ```sh
-docker compose up -d pgvector redis searxng
+docker compose up -d pgvector redis searxng pinchtab
 cp .env.example .env
 # Edit .env and set OPENAI_API_KEY, OPENAI_MODEL, and OPENAI_EMBEDDING_MODEL
 # Set TELEGRAM_BOT_TOKEN to enable Telegram, or NAIMA_API_TOKEN to enable the REST API
@@ -64,6 +64,25 @@ Stream events:
 - `delta` (token chunks)
 - `done` (final response)
 - `error`
+- `op` (operation/status messages)
+
+### Tools API
+
+List current tool states (enabled/disabled):
+
+```sh
+curl -sS "http://localhost:8080/api/tools" \
+	-H "Authorization: Bearer $NAIMA_API_TOKEN"
+```
+
+Enable/disable a tool:
+
+```sh
+curl -sS -X POST "http://localhost:8080/api/tools" \
+	-H "Authorization: Bearer $NAIMA_API_TOKEN" \
+	-H "Content-Type: application/json" \
+	-d '{"name":"web_search","enabled":false}'
+```
 
 To start a new conversation (clear Memorya context) with REST:
 
@@ -109,6 +128,10 @@ Optional environment variables:
   ivfflat index creation (default `0`).
 - `NAIMA_SEARX_URL`: local Searx base URL used by the `web_search` tool
   (default `http://localhost:8081`).
+- `NAIMA_PINCHTAB_URL`: local PinchTab base URL used by the `pinchtab` tool
+  (default `http://localhost:9867`).
+- `NAIMA_PINCHTAB_TOKEN`: optional PinchTab auth token passed as
+  `Authorization: Bearer` and `X-Bridge-Token`.
 - `NAIMA_UI_DIR`: directory containing `index.html` for the built-in web UI
   (default `./internal/httpapi/ui`).
 
@@ -118,9 +141,11 @@ Notes:
 - In Telegram, send `/new` or `/reset` to clear the current Memorya context.
 - Telegram draft streaming is optional and disabled by default.
 - On each new incoming message, Naima computes embeddings before storing it in Memorya.
-- Tools available to the model: `time`, `web_search`, `long_memory`.
+- Tools available to the model: `time`, `web_search`, `pinchtab`, `long_memory`.
 - `web_search` supports optional `categories`, `engines`, and `time_range`
   (`day|month|year`) in addition to `query`.
+- `pinchtab` supports browser automation/scraping operations:
+  `navigate`, `action`, `evaluate`, `text`, `snapshot`, `scrape`.
 - `long_memory` uses `something` as input and returns a summary of relevant
   previous messages from the memory database.
 - `docker/searxng/settings.yml` is mounted into the SearxNG container and

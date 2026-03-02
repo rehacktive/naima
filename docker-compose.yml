@@ -48,5 +48,17 @@ services:
       timeout: 5s
       retries: 20
 
+  pinchtab:
+    image: pinchtab/pinchtab:latest
+    container_name: naima-pinchtab
+    restart: unless-stopped
+    ports:
+      - "9867:9867"
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O - http://127.0.0.1:9867/health >/dev/null 2>&1 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+
 volumes:
   pgvector_data:

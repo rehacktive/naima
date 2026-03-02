@@ -2,9 +2,11 @@ package agent
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -17,6 +19,9 @@ import (
 	"naima/internal/tools"
 )
 
+const maxToolRounds = 8
+const maxToolLogChars = 220
+
 type Agent struct {
 	Name           string
 	SystemPrompt   string
@@ -25,7 +30,15 @@ type Agent struct {
 	EmbeddingModel string
 	Memory         *memcore.Memorya
 	Tools          map[string]tools.Tool
+	ToolEnabled    map[string]bool
 	mu             sync.Mutex
+}
+
+type ToolState struct {
+	Name        string `json:"name"`
+	Description string `json:"description"`
+	Immediate   bool   `json:"immediate"`
+	Enabled     bool   `json:"enabled"`
 }
 
 func New(name string, systemPrompt string, client *openai.Client, model string, embeddingModel string, memory *memcore.Memorya, toolset []tools.Tool) *Agent {
@@ -45,6 +58,7 @@ func New(name string, systemPrompt string, client *openai.Client, model string, 
 		EmbeddingModel: embeddingModel,
 		Memory:         memory,
 		Tools:          toolMap,
+		ToolEnabled:    enabledMap(toolMap),
 	}
 }
 
@@ -126,12 +140,13 @@ func (a *Agent) processMessage(ctx context.Context, input string, onDelta func(s
 		})
 	}
 
+	activeTools := a.enabledTools()
 	req := openai.ChatCompletionRequest{
 		Model:    a.Model,
 		Messages: messages,
 	}
-	if len(a.Tools) > 0 {
-		req.Tools = toOpenAITools(a.Tools)
+	if len(activeTools) > 0 {
+		req.Tools = toOpenAITools(activeTools)
 	}
 	log.Infof("[agent] sending model request context_messages=%d tools=%d", len(messages), len(req.Tools))
 	emitOp(onOp, "model request started")
@@ -140,11 +155,17 @@ func (a *Agent) processMessage(ctx context.Context, input string, onDelta func(s
 	if err != nil {
 		return "", fmt.Errorf("llm request failed: %w", err)
 	}
-	if len(msg.ToolCalls) > 0 {
-		log.Infof("[agent] model requested tool calls count=%d", len(msg.ToolCalls))
-		emitOp(onOp, fmt.Sprintf("tool calls requested (%d)", len(msg.ToolCalls)))
+
+	for toolRound := 1; len(msg.ToolCalls) > 0; toolRound++ {
+		if toolRound > maxToolRounds {
+			return "", fmt.Errorf("tool execution exceeded max rounds (%d)", maxToolRounds)
+		}
+
+		log.Infof("[agent] model requested tool calls round=%d count=%d", toolRound, len(msg.ToolCalls))
+		emitOp(onOp, fmt.Sprintf("tool calls requested (round=%d, count=%d)", toolRound, len(msg.ToolCalls)))
+
 		for _, call := range msg.ToolCalls {
-			tool, ok := a.Tools[call.Function.Name]
+			tool, ok := activeTools[call.Function.Name]
 			if !ok {
 				return "", fmt.Errorf("tool not found: %s", call.Function.Name)
 			}
@@ -152,6 +173,12 @@ func (a *Agent) processMessage(ctx context.Context, input string, onDelta func(s
 			log.Infof("[agent] executing tool name=%s immediate=%t", call.Function.Name, tool.IsImmediate())
 			emitOp(onOp, fmt.Sprintf("executing tool: %s", call.Function.Name))
 			out := tool.GetFunction()(call.Function.Arguments)
+			log.Infof("[agent] tool output name=%s chars=%d preview=%s", call.Function.Name, len(out), truncateForLog(out, maxToolLogChars))
+			emitOp(onOp, fmt.Sprintf("tool output: %s (%d chars)", call.Function.Name, len(out)))
+			if toolErr, ok := extractToolError(out); ok {
+				log.Warnf("[agent] tool returned error name=%s error=%s", call.Function.Name, toolErr)
+				emitOp(onOp, fmt.Sprintf("tool error: %s", toolErr))
+			}
 			if tool.IsImmediate() {
 				now = time.Now().UTC()
 				a.Memory.AddMessage(memstorage.Message{
@@ -176,23 +203,26 @@ func (a *Agent) processMessage(ctx context.Context, input string, onDelta func(s
 			})
 		}
 
-		secondReq := openai.ChatCompletionRequest{
+		followReq := openai.ChatCompletionRequest{
 			Model:    a.Model,
 			Messages: messages,
 		}
-		if len(a.Tools) > 0 {
-			secondReq.Tools = toOpenAITools(a.Tools)
+		if len(activeTools) > 0 {
+			followReq.Tools = toOpenAITools(activeTools)
 		}
-		log.Infof("[agent] sending follow-up model request after tool execution")
-		emitOp(onOp, "model follow-up after tools")
+		log.Infof("[agent] sending follow-up model request after tool execution round=%d", toolRound)
+		emitOp(onOp, fmt.Sprintf("model follow-up after tools (round=%d)", toolRound))
 
-		msg, err = a.runModel(ctx, secondReq, onDelta)
+		msg, err = a.runModel(ctx, followReq, onDelta)
 		if err != nil {
 			return "", fmt.Errorf("llm request failed after tool execution: %w", err)
 		}
 	}
 
 	answer := strings.TrimSpace(msg.Content)
+	if answer == "" {
+		return "", fmt.Errorf("llm returned an empty response")
+	}
 	now = time.Now().UTC()
 	a.Memory.AddMessage(memstorage.Message{
 		Role:      openai.ChatMessageRoleAssistant,
@@ -306,6 +336,45 @@ func (a *Agent) ResetMemory() error {
 	return nil
 }
 
+func (a *Agent) ListTools() []ToolState {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	names := make([]string, 0, len(a.Tools))
+	for name := range a.Tools {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+
+	out := make([]ToolState, 0, len(names))
+	for _, name := range names {
+		tool := a.Tools[name]
+		out = append(out, ToolState{
+			Name:        name,
+			Description: tool.GetDescription(),
+			Immediate:   tool.IsImmediate(),
+			Enabled:     a.ToolEnabled[name],
+		})
+	}
+	return out
+}
+
+func (a *Agent) SetToolEnabled(name string, enabled bool) error {
+	a.mu.Lock()
+	defer a.mu.Unlock()
+
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return fmt.Errorf("tool name is required")
+	}
+	if _, ok := a.Tools[name]; !ok {
+		return fmt.Errorf("tool not found: %s", name)
+	}
+	a.ToolEnabled[name] = enabled
+	log.Infof("[agent] tool state changed name=%s enabled=%t", name, enabled)
+	return nil
+}
+
 func normalizeRole(role string) string {
 	switch role {
 	case openai.ChatMessageRoleSystem, openai.ChatMessageRoleUser, openai.ChatMessageRoleAssistant:
@@ -346,4 +415,50 @@ func emitOp(onOp func(string), message string) {
 	if onOp != nil {
 		onOp(message)
 	}
+}
+
+func truncateForLog(v string, max int) string {
+	s := strings.TrimSpace(v)
+	if max <= 0 || len(s) <= max {
+		return s
+	}
+	return s[:max] + "...(truncated)"
+}
+
+func extractToolError(out string) (string, bool) {
+	var payload map[string]any
+	if err := json.Unmarshal([]byte(out), &payload); err != nil {
+		return "", false
+	}
+	raw, ok := payload["error"]
+	if !ok {
+		return "", false
+	}
+	msg, ok := raw.(string)
+	if !ok {
+		return "", false
+	}
+	msg = strings.TrimSpace(msg)
+	if msg == "" {
+		return "", false
+	}
+	return msg, true
+}
+
+func enabledMap(toolMap map[string]tools.Tool) map[string]bool {
+	out := make(map[string]bool, len(toolMap))
+	for name := range toolMap {
+		out[name] = true
+	}
+	return out
+}
+
+func (a *Agent) enabledTools() map[string]tools.Tool {
+	out := make(map[string]tools.Tool, len(a.Tools))
+	for name, tool := range a.Tools {
+		if a.ToolEnabled[name] {
+			out[name] = tool
+		}
+	}
+	return out
 }
