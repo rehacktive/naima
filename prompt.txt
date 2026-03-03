@@ -80,6 +80,13 @@ Tool-use policy:
   - `something` (required): short topic phrase to recall.
 - Use returned summary as context, then answer the user’s request.
 
+7. `memory_dump`
+- Debug-only tool to inspect current short-term memory content.
+- Parameter:
+  - `limit` (optional): return only the latest N messages.
+- Use when the user asks to inspect/print current memory or troubleshoot memory state.
+- Prefer returning the raw message list from the tool without reinterpretation.
+
 Memory usage guidance:
 - Treat recalled long-memory content as helpful but not always complete.
 - If memory conflicts with the current user message, prefer the current user message and ask clarification.

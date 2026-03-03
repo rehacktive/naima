@@ -81,8 +81,9 @@ func main() {
 		os.Exit(1)
 	}
 	defer memStore.Close()
-	memSize := envInt("NAIMA_MEMORY_MAX_CONTEXT", 20)
-	memoryInstance := memcore.InitMemorya(memSize, memStore)
+	memSize := envInt("NAIMA_MEMORY_MAX_CONTEXT", 50)
+	memorySummarizer := memory.NewLLMSummarizer(client, llmConfig.Model, time.Duration(envInt("NAIMA_MEMORY_SUMMARY_TIMEOUT_MS", 8000))*time.Millisecond)
+	memoryInstance := memcore.InitMemoryaWithSummarizer(memSize, memStore, memorySummarizer)
 	telegramNotifier := telegram.NewNotifier(strings.TrimSpace(os.Getenv("TELEGRAM_BOT_TOKEN")), os.Getenv("NAIMA_SESSION_FILE"))
 	taskManager, err := tasks.NewManager(ctx, pgvectorDSN(), telegramNotifier, taskLocation())
 	if err != nil {
@@ -96,6 +97,7 @@ func main() {
 		tools.NewPlaywrightTool(playwrightHeadless(), envInt("NAIMA_PLAYWRIGHT_TIMEOUT_MS", 30000)),
 		tools.NewTaskSchedulerTool(taskManager),
 		tools.NewLongMemoryTool(client, llmConfig.Model, llmConfig.EmbeddingModel, memStore),
+		tools.NewMemoryDumpTool(memoryInstance),
 	}
 	if token := strings.TrimSpace(os.Getenv("TELEGRAM_BOT_TOKEN")); token != "" {
 		toolset = append(toolset, tools.NewTelegramSendTool(token, os.Getenv("NAIMA_SESSION_FILE")))

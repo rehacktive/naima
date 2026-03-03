@@ -28,10 +28,17 @@ type Agent struct {
 	Client         *openai.Client
 	Model          string
 	EmbeddingModel string
-	Memory         *memcore.Memorya
+	Memory         ConversationMemory
 	Tools          map[string]tools.Tool
 	ToolEnabled    map[string]bool
 	mu             sync.Mutex
+}
+
+type ConversationMemory interface {
+	AddMessage(message memstorage.Message, pinned bool)
+	GetMessages() []memstorage.Message
+	GetStatus() memcore.Status
+	Reset()
 }
 
 type ToolState struct {
@@ -41,7 +48,13 @@ type ToolState struct {
 	Enabled     bool   `json:"enabled"`
 }
 
-func New(name string, systemPrompt string, client *openai.Client, model string, embeddingModel string, memory *memcore.Memorya, toolset []tools.Tool) *Agent {
+type MemoryStatusView struct {
+	memcore.Status
+	SummaryMessages int `json:"summary_messages"`
+	RecallMessages  int `json:"recall_messages"`
+}
+
+func New(name string, systemPrompt string, client *openai.Client, model string, embeddingModel string, memory ConversationMemory, toolset []tools.Tool) *Agent {
 	toolMap := make(map[string]tools.Tool, len(toolset))
 	for _, tool := range toolset {
 		if tool == nil {
@@ -336,14 +349,25 @@ func (a *Agent) ResetMemory() error {
 	return nil
 }
 
-func (a *Agent) MemoryStatus() (memcore.Status, error) {
+func (a *Agent) MemoryStatus() (MemoryStatusView, error) {
 	if a.Memory == nil {
-		return memcore.Status{}, fmt.Errorf("memory is not configured")
+		return MemoryStatusView{}, fmt.Errorf("memory is not configured")
 	}
 
 	a.mu.Lock()
 	defer a.mu.Unlock()
-	return a.Memory.GetStatus(), nil
+	base := a.Memory.GetStatus()
+	view := MemoryStatusView{Status: base}
+	for _, msg := range a.Memory.GetMessages() {
+		content := strings.TrimSpace(msg.Content)
+		if strings.HasPrefix(content, "Summary:") || strings.HasPrefix(content, "Summary (fallback):") {
+			view.SummaryMessages++
+		}
+		if strings.HasPrefix(content, "Recalled context:") {
+			view.RecallMessages++
+		}
+	}
+	return view, nil
 }
 
 func (a *Agent) ListTools() []ToolState {

@@ -833,6 +833,8 @@
         ["current", status.CurrentSize],
         ["pinned", status.PinnedCount],
         ["unpinned", status.UnpinnedCount],
+        ["summaries", status.summary_messages ?? status.SummaryMessages ?? 0],
+        ["recalled", status.recall_messages ?? status.RecallMessages ?? 0],
         ["summarizer", status.HasSummarizer ? "yes" : "no"],
         ["pending_recall", status.HasPendingRecall ? "yes" : "no"]
       ];

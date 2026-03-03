@@ -247,6 +247,8 @@ Optional environment variables:
   `sendMessage` only).
 - `NAIMA_MEMORY_MAX_CONTEXT`: max number of active context messages kept in
   Memorya (default `20`).
+- `NAIMA_MEMORY_SUMMARY_TIMEOUT_MS`: timeout for LLM-based Memorya summarizer
+  calls in milliseconds (default `8000`).
 - `NAIMA_PGVECTOR_DSN`: PostgreSQL DSN for pgvector storage
   (default `postgres://naima:naima@localhost:5432/naima?sslmode=disable`).
 - `NAIMA_PGVECTOR_SEARCH_LIMIT`: max related messages fetched by vector search
@@ -270,6 +272,11 @@ Notes:
 - In Telegram, send `/new` or `/reset` to clear the current Memorya context.
 - Telegram draft streaming is optional and disabled by default.
 - On each new incoming message, Naima computes embeddings before storing it in Memorya.
+- Memorya uses an LLM summarizer to compress older context when the in-memory
+  context exceeds `NAIMA_MEMORY_MAX_CONTEXT`.
+- Compaction policy: when active context reaches max size, Naima compacts
+  memory to `pinned messages + one summary message` (so size becomes `1` if
+  there are no pinned messages).
 - The web UI includes a collapsible Memory panel (between Tools and Operations)
   showing Memorya `GetStatus()` fields.
 - Scheduled tasks are persisted in PostgreSQL (`scheduled_tasks`) and restored
