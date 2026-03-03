@@ -26,6 +26,11 @@ On first run, the app prints a link code in the terminal. Send that code to the 
 in Telegram to bind the agent to your user ID. After that, only your user can chat
 with the agent.
 
+Telegram audio messages are supported:
+- voice/audio messages are transcribed via OpenAI `/audio/transcriptions`
+- transcription is processed as a normal agent message
+- reply is sent as text plus generated speech via OpenAI `/audio/speech`
+
 ## REST API
 
 Set `NAIMA_API_TOKEN` to enable the REST endpoint. Optionally set `NAIMA_API_ADDR`
@@ -266,6 +271,14 @@ Optional environment variables:
 - `NAIMA_TELEGRAM_STREAM`: enable Telegram draft streaming via
   `sendMessageDraft` (`true`/`1`/`yes`/`on`). Default `false` (normal
   `sendMessage` only).
+- `NAIMA_TRANSCRIPTION_MODEL`: OpenAI transcription model for Telegram audio
+  inputs (default `whisper-1`).
+- `NAIMA_TTS_MODEL`: OpenAI speech model for Telegram voice replies (default
+  `tts-1`; allowed: `tts-1`, `tts-1-hd`, `canary-tts`).
+- `NAIMA_TTS_VOICE`: OpenAI TTS voice (default `alloy`; allowed: `alloy`,
+  `echo`, `fable`, `onyx`, `nova`, `shimmer`).
+- `NAIMA_TTS_FORMAT`: OpenAI speech response format (default `mp3`; allowed:
+  `mp3`, `opus`, `aac`, `flac`, `wav`, `pcm`).
 - `NAIMA_MEMORY_MAX_CONTEXT`: max number of active context messages kept in
   Memorya (default `20`).
 - `NAIMA_MEMORY_SUMMARY_TIMEOUT_MS`: timeout for LLM-based Memorya summarizer

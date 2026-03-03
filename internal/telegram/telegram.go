@@ -1,17 +1,22 @@
 package telegram
 
 import (
+	"bytes"
 	"context"
 	"crypto/rand"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
+	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
 	"time"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
+	openai "github.com/sashabaranov/go-openai"
 	log "github.com/sirupsen/logrus"
 
 	"naima/internal/safeio"
@@ -20,6 +25,11 @@ import (
 )
 
 const defaultSessionFile = ".naima_session.json"
+
+const (
+	maxTelegramAudioBytes = 25 * 1024 * 1024
+	defaultAudioTimeout   = 90 * time.Second
+)
 
 type sessionData struct {
 	UserID      int64  `json:"user_id"`
@@ -114,16 +124,37 @@ func RunBot(ctx context.Context, agentInstance *agent.Agent) error {
 				continue
 			}
 
+			audioInput, hasAudio := extractIncomingAudio(update.Message)
+			if text == "" && !hasAudio {
+				continue
+			}
+
+			inputText := text
+			audioLanguage := ""
+			if hasAudio && text == "" {
+				audioCtx, cancel := context.WithTimeout(ctx, defaultAudioTimeout)
+				transcript, detectedLang, trErr := transcribeTelegramAudio(audioCtx, bot, agentInstance.Client, audioInput)
+				cancel()
+				if trErr != nil {
+					msg := tgbotapi.NewMessage(update.Message.Chat.ID, fmt.Sprintf("Error: audio transcription failed: %s", trErr.Error()))
+					_, _ = bot.Send(msg)
+					continue
+				}
+				inputText = transcript
+				audioLanguage = detectedLang
+				log.Infof("[telegram] audio transcribed kind=%s lang=%s chars=%d", audioInput.Kind, audioLanguage, len(strings.TrimSpace(inputText)))
+			}
+
 			var (
 				response string
 				err      error
 			)
 			if streamEnabled {
 				streamer := newDraftStreamer(bot, update.Message.Chat.ID)
-				response, err = agentInstance.ProcessMessageStream(ctx, text, streamer.OnDelta)
+				response, err = agentInstance.ProcessMessageStream(ctx, inputText, streamer.OnDelta)
 				streamer.Flush()
 			} else {
-				response, err = agentInstance.ProcessMessage(ctx, text)
+				response, err = agentInstance.ProcessMessage(ctx, inputText)
 			}
 			if err != nil {
 				response = fmt.Sprintf("Error: %s", err.Error())
@@ -131,7 +162,266 @@ func RunBot(ctx context.Context, agentInstance *agent.Agent) error {
 
 			msg := tgbotapi.NewMessage(update.Message.Chat.ID, response)
 			_, _ = bot.Send(msg)
+
+			if hasAudio && err == nil {
+				audioCtx, cancel := context.WithTimeout(ctx, defaultAudioTimeout)
+				voiceData, ext, ttsErr := synthesizeSpeech(audioCtx, agentInstance.Client, response, audioLanguage)
+				cancel()
+				if ttsErr != nil {
+					log.Warnf("[telegram] tts failed: %v", ttsErr)
+					continue
+				}
+				if sendErr := sendVoiceReply(bot, update.Message.Chat.ID, voiceData, ext); sendErr != nil {
+					log.Warnf("[telegram] send voice reply failed: %v", sendErr)
+				}
+			}
 		}
+	}
+}
+
+type incomingAudio struct {
+	Kind     string
+	FileID   string
+	FileName string
+}
+
+func extractIncomingAudio(msg *tgbotapi.Message) (incomingAudio, bool) {
+	if msg == nil {
+		return incomingAudio{}, false
+	}
+	if msg.Voice != nil && strings.TrimSpace(msg.Voice.FileID) != "" {
+		return incomingAudio{
+			Kind:     "voice",
+			FileID:   strings.TrimSpace(msg.Voice.FileID),
+			FileName: "voice.ogg",
+		}, true
+	}
+	if msg.Audio != nil && strings.TrimSpace(msg.Audio.FileID) != "" {
+		name := strings.TrimSpace(msg.Audio.FileName)
+		if name == "" {
+			name = "audio.mp3"
+		}
+		return incomingAudio{
+			Kind:     "audio",
+			FileID:   strings.TrimSpace(msg.Audio.FileID),
+			FileName: name,
+		}, true
+	}
+	return incomingAudio{}, false
+}
+
+func transcribeTelegramAudio(ctx context.Context, bot *tgbotapi.BotAPI, client *openai.Client, audio incomingAudio) (string, string, error) {
+	if client == nil {
+		return "", "", errors.New("llm client is not configured")
+	}
+	if strings.TrimSpace(audio.FileID) == "" {
+		return "", "", errors.New("telegram audio file id is empty")
+	}
+
+	fileURL, err := bot.GetFileDirectURL(audio.FileID)
+	if err != nil {
+		return "", "", fmt.Errorf("get telegram file url failed: %w", err)
+	}
+	content, err := downloadTelegramFile(ctx, bot, fileURL, maxTelegramAudioBytes)
+	if err != nil {
+		return "", "", err
+	}
+
+	fileName := normalizeAudioFilename(audio.FileName, fileURL)
+	req := openai.AudioRequest{
+		Model:    transcriptionModel(),
+		FilePath: fileName,
+		Reader:   bytes.NewReader(content),
+		Format:   openai.AudioResponseFormatVerboseJSON,
+	}
+	resp, err := client.CreateTranscription(ctx, req)
+	if err != nil {
+		return "", "", fmt.Errorf("openai transcription failed: %w", err)
+	}
+
+	text := strings.TrimSpace(resp.Text)
+	if text == "" {
+		return "", "", errors.New("empty transcription")
+	}
+	lang := strings.TrimSpace(resp.Language)
+	return text, lang, nil
+}
+
+func downloadTelegramFile(ctx context.Context, bot *tgbotapi.BotAPI, fileURL string, maxBytes int64) ([]byte, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, fileURL, nil)
+	if err != nil {
+		return nil, fmt.Errorf("build telegram download request failed: %w", err)
+	}
+
+	httpClient := bot.Client
+	if httpClient == nil {
+		httpClient = http.DefaultClient
+	}
+	resp, err := httpClient.Do(req)
+	if err != nil {
+		return nil, fmt.Errorf("download telegram audio failed: %w", err)
+	}
+	defer resp.Body.Close()
+
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return nil, fmt.Errorf("telegram file download returned status %d", resp.StatusCode)
+	}
+
+	if maxBytes <= 0 {
+		maxBytes = maxTelegramAudioBytes
+	}
+	limited := io.LimitReader(resp.Body, maxBytes+1)
+	data, err := io.ReadAll(limited)
+	if err != nil {
+		return nil, fmt.Errorf("read telegram audio failed: %w", err)
+	}
+	if int64(len(data)) > maxBytes {
+		return nil, fmt.Errorf("audio file is too large (max %d bytes)", maxBytes)
+	}
+	return data, nil
+}
+
+func normalizeAudioFilename(fileName string, fileURL string) string {
+	name := strings.TrimSpace(fileName)
+	if name == "" {
+		name = "audio-input"
+	}
+
+	if u, err := url.Parse(fileURL); err == nil {
+		if base := strings.TrimSpace(filepath.Base(u.Path)); base != "" && base != "." && base != "/" {
+			name = base
+		}
+	}
+
+	ext := strings.ToLower(strings.TrimSpace(filepath.Ext(name)))
+	if ext == "" {
+		name = name + ".ogg"
+	}
+	return name
+}
+
+func synthesizeSpeech(ctx context.Context, client *openai.Client, text string, language string) ([]byte, string, error) {
+	if client == nil {
+		return nil, "", errors.New("llm client is not configured")
+	}
+	input := strings.TrimSpace(text)
+	if input == "" {
+		return nil, "", errors.New("speech input is empty")
+	}
+	_ = strings.TrimSpace(language)
+
+	req := openai.CreateSpeechRequest{
+		Model:          speechModel(),
+		Input:          input,
+		Voice:          speechVoice(),
+		ResponseFormat: speechResponseFormat(),
+	}
+
+	raw, err := client.CreateSpeech(ctx, req)
+	if err != nil {
+		return nil, "", fmt.Errorf("openai speech failed: %w", err)
+	}
+	defer raw.Close()
+
+	data, err := io.ReadAll(raw)
+	if err != nil {
+		return nil, "", fmt.Errorf("read speech response failed: %w", err)
+	}
+	if len(data) == 0 {
+		return nil, "", errors.New("empty speech response")
+	}
+	return data, speechFileExt(req.ResponseFormat), nil
+}
+
+func sendVoiceReply(bot *tgbotapi.BotAPI, chatID int64, data []byte, ext string) error {
+	if len(data) == 0 {
+		return errors.New("empty voice data")
+	}
+	name := "reply" + ext
+	if ext == "" {
+		name = "reply.mp3"
+	}
+
+	voice := tgbotapi.NewVoice(chatID, tgbotapi.FileBytes{Name: name, Bytes: data})
+	if _, err := bot.Send(voice); err == nil {
+		return nil
+	}
+
+	// Fallback to regular audio if the format is rejected as voice note.
+	audio := tgbotapi.NewAudio(chatID, tgbotapi.FileBytes{Name: name, Bytes: data})
+	if _, err := bot.Send(audio); err != nil {
+		return err
+	}
+	return nil
+}
+
+func transcriptionModel() string {
+	v := strings.TrimSpace(os.Getenv("NAIMA_TRANSCRIPTION_MODEL"))
+	if v == "" {
+		return openai.Whisper1
+	}
+	return v
+}
+
+func speechModel() openai.SpeechModel {
+	switch strings.TrimSpace(os.Getenv("NAIMA_TTS_MODEL")) {
+	case string(openai.TTSModel1HD):
+		return openai.TTSModel1HD
+	case string(openai.TTSModelCanary):
+		return openai.TTSModelCanary
+	default:
+		return openai.TTSModel1
+	}
+}
+
+func speechVoice() openai.SpeechVoice {
+	switch strings.TrimSpace(os.Getenv("NAIMA_TTS_VOICE")) {
+	case string(openai.VoiceEcho):
+		return openai.VoiceEcho
+	case string(openai.VoiceFable):
+		return openai.VoiceFable
+	case string(openai.VoiceOnyx):
+		return openai.VoiceOnyx
+	case string(openai.VoiceNova):
+		return openai.VoiceNova
+	case string(openai.VoiceShimmer):
+		return openai.VoiceShimmer
+	default:
+		return openai.VoiceAlloy
+	}
+}
+
+func speechResponseFormat() openai.SpeechResponseFormat {
+	switch strings.ToLower(strings.TrimSpace(os.Getenv("NAIMA_TTS_FORMAT"))) {
+	case string(openai.SpeechResponseFormatOpus):
+		return openai.SpeechResponseFormatOpus
+	case string(openai.SpeechResponseFormatAac):
+		return openai.SpeechResponseFormatAac
+	case string(openai.SpeechResponseFormatFlac):
+		return openai.SpeechResponseFormatFlac
+	case string(openai.SpeechResponseFormatWav):
+		return openai.SpeechResponseFormatWav
+	case string(openai.SpeechResponseFormatPcm):
+		return openai.SpeechResponseFormatPcm
+	default:
+		return openai.SpeechResponseFormatMp3
+	}
+}
+
+func speechFileExt(format openai.SpeechResponseFormat) string {
+	switch format {
+	case openai.SpeechResponseFormatOpus:
+		return ".opus"
+	case openai.SpeechResponseFormatAac:
+		return ".aac"
+	case openai.SpeechResponseFormatFlac:
+		return ".flac"
+	case openai.SpeechResponseFormatWav:
+		return ".wav"
+	case openai.SpeechResponseFormatPcm:
+		return ".pcm"
+	default:
+		return ".mp3"
 	}
 }
 
