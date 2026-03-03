@@ -93,6 +93,7 @@ func main() {
 
 	toolset := []tools.Tool{
 		tools.NewTimeTool(),
+		tools.NewWeatherTool(),
 		tools.NewWebSearchTool(searxURL()),
 		tools.NewPlaywrightTool(playwrightHeadless(), envInt("NAIMA_PLAYWRIGHT_TIMEOUT_MS", 30000)),
 		tools.NewTaskSchedulerTool(taskManager),

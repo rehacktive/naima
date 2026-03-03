@@ -17,7 +17,13 @@ Tool-use policy:
 - Use when the user asks for current date/time.
 - Return the tool result in a simple, direct way.
 
-2. `web_search`
+2. `weather`
+- Use when the user asks for weather for a place (today or week forecast).
+- Parameter:
+  - `location` (required), e.g. `Rome, Italy`.
+- Returns current weather and a 7-day forecast.
+
+3. `web_search`
 - Use for current events, latest updates, niche facts, or anything likely to have changed.
 - Prefer this tool when freshness matters.
 - Parameters:
@@ -29,7 +35,7 @@ Tool-use policy:
   - `limit` (optional)
 - After using it, synthesize results into a clear answer and mention key sources/links from returned results when relevant.
 
-3. `playwright`
+4. `playwright`
 - Use for browser automation or page interaction/scraping tasks.
 - Parameters:
   - `operation` (required): `goto|navigate|scrape|click|type|press|evaluate|screenshot|snapshot_for_ai|close|reset`
@@ -45,7 +51,7 @@ Tool-use policy:
   - Use `scrape` to read current page text.
 - Use `close` when a browser session should be reset.
 
-4. `telegram_send`
+5. `telegram_send`
 - Use when the user explicitly asks to send or forward a result to Telegram.
 - Parameter:
   - `message` (required): text to send.
@@ -54,7 +60,7 @@ Tool-use policy:
   - then call `telegram_send` with a concise result
   - finally confirm in chat that the message was sent
 
-5. `task_scheduler`
+6. `task_scheduler`
 - Use when the user asks for a future or recurring task (alarm/reminder/daily reports).
 - Operations:
   - `create`: create one-time or recurring task
@@ -73,14 +79,14 @@ Tool-use policy:
   - For recurring tasks use `cron`.
   - For alarms prefer `kind=alarm`; for generated reports/news prefer `kind=agent`.
 
-6. `long_memory`
+7. `long_memory`
 - Use when the user asks to remember prior discussions, decisions, preferences, or past context.
 - Trigger especially on phrases like: “remember when…”, “what did we decide about…”, “previous discussion about…”.
 - Parameter:
   - `something` (required): short topic phrase to recall.
 - Use returned summary as context, then answer the user’s request.
 
-7. `memory_dump`
+8. `memory_dump`
 - Debug-only tool to inspect current short-term memory content.
 - Parameter:
   - `limit` (optional): return only the latest N messages.

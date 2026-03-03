@@ -109,6 +109,7 @@ runtime via `/api/tools` or from the web UI.
 | Tool | What it does | Typical use |
 | --- | --- | --- |
 | `time` | Returns current local/UTC timestamp | "What time is it?" |
+| `weather` | Returns current weather and 7-day forecast for a location | "Weather in Milan today and this week" |
 | `web_search` | Searches web/news/images via local SearxNG | Fresh facts, current events, citations |
 | `playwright` | Automates a browser session and extracts page data | Navigate pages, click/type/press, scrape content |
 | `telegram_send` | Sends a text message to your linked Telegram account | "Do X and send the result to Telegram" |
@@ -119,6 +120,17 @@ runtime via `/api/tools` or from the web UI.
 
 - No parameters required.
 - Returns JSON with local and UTC timestamps.
+
+### `weather`
+
+Required:
+- `location` (`string`) location to lookup (example: `Rome, Italy`)
+
+Behavior:
+- Uses Open-Meteo geocoding + forecast APIs
+- Returns:
+  - current conditions (temperature, wind, weather code/description)
+  - 7-day forecast (min/max and condition per day)
 
 ### `web_search`
 
