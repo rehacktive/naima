@@ -24,8 +24,6 @@ github.com/playwright-community/playwright-go v0.5700.1 h1:PNFb1byWqrTT720rEO0JL
 github.com/playwright-community/playwright-go v0.5700.1/go.mod h1:MlSn1dZrx8rszbCxY6x3qK89ZesJUYVx21B2JnkoNF0=
 github.com/pmezard/go-difflib v1.0.0 h1:4DBwDE0NGyQoBHbLQYPwSUPoCMWR5BEzIk/f1lZbAQM=
 github.com/pmezard/go-difflib v1.0.0/go.mod h1:iKH77koFhYxTK1pcRnkKkqfTogsbg7gZNVY4sRDYZ/4=
-github.com/rehacktive/memorya v0.0.0-20260225160238-a87c8846b4c9 h1:T5aeCQRGohVMj68ZImzOKvdjEBfOl/KNuCzcCCaOM48=
-github.com/rehacktive/memorya v0.0.0-20260225160238-a87c8846b4c9/go.mod h1:Zy0DeGW4dN/OvIIU04lUd3h6MAp2H8gBQm5VaXM6ZBY=
 github.com/rehacktive/memorya v0.0.0-20260302185558-06a3c02bf639 h1:KvN/+M2J3CGVKPgPFC367p7mOqfBxPcPNOImdupHXkw=
 github.com/rehacktive/memorya v0.0.0-20260302185558-06a3c02bf639/go.mod h1:Zy0DeGW4dN/OvIIU04lUd3h6MAp2H8gBQm5VaXM6ZBY=
 github.com/robfig/cron/v3 v3.0.1 h1:WdRxkvbJztn8LMz/QEvLN5sBU+xKpSqwwUO1Pjr4qDs=
