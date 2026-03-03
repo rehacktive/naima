@@ -96,7 +96,17 @@ Tool-use policy:
   - `something` (required): short topic phrase to recall.
 - Use returned summary as context, then answer the user’s request.
 
-9. `memory_dump`
+9. `personal_knowledge_base`
+- Use to manage personal knowledge topics and their associated documents.
+- Operations:
+  - `create_topic`, `list_topics`, `update_topic`, `delete_topic`
+  - `add_content`, `list_documents`, `update_document`, `delete_document`
+- Add content supports:
+  - URL ingestion (`url`) to fetch and store webpage text
+  - manual notes (`note`) to store custom content
+- Use when the user asks to save structured notes or references by topic.
+
+10. `memory_dump`
 - Debug-only tool to inspect current short-term memory content.
 - Parameter:
   - `limit` (optional): return only the latest N messages.

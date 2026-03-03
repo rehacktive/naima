@@ -19,6 +19,7 @@ import (
 	"naima/internal/httpapi"
 	"naima/internal/llm"
 	"naima/internal/memory"
+	"naima/internal/pkb"
 	"naima/internal/safeio"
 	"naima/internal/tasks"
 	"naima/internal/telegram"
@@ -91,12 +92,19 @@ func main() {
 		fmt.Fprintln(os.Stderr, err.Error())
 		os.Exit(1)
 	}
+	pkbStorage, err := pkb.NewStorage(ctx, pgvectorDSN())
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err.Error())
+		os.Exit(1)
+	}
+	defer pkbStorage.Close()
 
 	toolset := []tools.Tool{
 		tools.NewTimeTool(),
 		tools.NewWeatherTool(),
 		tools.NewWebSearchTool(searxURL()),
 		tools.NewNewsDigestTool(searxURL()),
+		tools.NewPersonalKnowledgeBaseTool(pkbStorage),
 		tools.NewPlaywrightTool(playwrightHeadless(), envInt("NAIMA_PLAYWRIGHT_TIMEOUT_MS", 30000)),
 		tools.NewTaskSchedulerTool(taskManager),
 		tools.NewLongMemoryTool(client, llmConfig.Model, llmConfig.EmbeddingModel, memStore),

@@ -111,6 +111,7 @@ runtime via `/api/tools` or from the web UI.
 | `weather` | Returns current weather and 7-day forecast for a location | "Weather in Milan today and this week" |
 | `web_search` | Searches web/news/images via local SearxNG | Fresh facts, current events, citations |
 | `news_digest` | Builds concise topic-based news digest from SearxNG news results | "Give me a digest on AI regulation this week" |
+| `personal_knowledge_base` | CRUD for personal topics and associated documents/notes | "Create topic Golang", "add this URL to topic 3" |
 | `playwright` | Automates a browser session and extracts page data | Navigate pages, click/type/press, scrape content |
 | `telegram_send` | Sends a text message to your linked Telegram account | "Do X and send the result to Telegram" |
 | `task_scheduler` | Creates persistent scheduled tasks (one-time/cron) | "Set an alarm in 5 minutes", "Send me news every day at 10" |
@@ -161,6 +162,27 @@ Behavior:
 - Returns:
   - `digest` (compact textual summary)
   - `items` (structured list with title/url/source/snippet)
+
+### `personal_knowledge_base`
+
+Operations:
+- Topics:
+  - `create_topic` (`topic`)
+  - `list_topics`
+  - `update_topic` (`topic_id`, `topic`)
+  - `delete_topic` (`topic_id`)
+- Documents:
+  - `add_content` (`topic_id` + `url` and/or `note`, optional `title`/`content`)
+  - `list_documents` (`topic_id`)
+  - `update_document` (`document_id`, `content`, optional `title`/`url`)
+  - `delete_document` (`document_id`)
+
+Behavior:
+- Stores data in PostgreSQL (`pkb_topics`, `pkb_documents`)
+- Each document belongs to one topic
+- `add_content` supports:
+  - URL ingestion (fetches webpage text and stores it)
+  - manual notes (stores provided note/content)
 
 ### `playwright`
 
