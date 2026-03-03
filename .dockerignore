@@ -1,0 +1,13 @@
+.git
+.github
+.env
+.env.*
+!.env.example
+README.md
+docker
+tmp
+*.log
+*.out
+*.test
+bin
+dist

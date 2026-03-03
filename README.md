@@ -11,12 +11,21 @@ Naima is a Go-based AI agent.
 ## Run
 
 ```sh
-docker compose up -d pgvector redis searxng
 cp .env.example .env
 # Edit .env and set OPENAI_API_KEY, OPENAI_MODEL, and OPENAI_EMBEDDING_MODEL
 # Set TELEGRAM_BOT_TOKEN to enable Telegram, or NAIMA_API_TOKEN to enable the REST API
 # Optionally set OPENAI_BASE_URL for a local or OpenAI-compatible endpoint
-go run .
+docker compose up -d --build
+```
+
+### Run only Naima container
+
+If `pgvector` and `searxng` are already running elsewhere, you can build/run just
+the Naima image:
+
+```sh
+docker build -t naima:latest .
+docker run --rm -it --env-file .env -p 8080:8080 --name naima naima:latest
 ```
 
 On first run, the app prints a link code in the terminal. Send that code to the bot

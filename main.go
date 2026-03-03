@@ -236,6 +236,9 @@ func envInt(key string, fallback int) int {
 
 func loadEnv() error {
 	if err := godotenv.Load(); err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
 		return fmt.Errorf("load .env failed: %w", err)
 	}
 

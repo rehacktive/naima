@@ -1,4 +1,23 @@
 services:
+  naima:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: naima-app
+    restart: unless-stopped
+    depends_on:
+      pgvector:
+        condition: service_healthy
+      searxng:
+        condition: service_healthy
+    env_file:
+      - .env
+    environment:
+      NAIMA_PGVECTOR_DSN: postgres://naima:naima@pgvector:5432/naima?sslmode=disable
+      NAIMA_SEARX_URL: http://searxng:8080
+    ports:
+      - "8080:8080"
+
   pgvector:
     image: pgvector/pgvector:pg16
     container_name: naima-pgvector
