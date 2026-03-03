@@ -83,6 +83,16 @@ func main() {
 	memSize := envInt("NAIMA_MEMORY_MAX_CONTEXT", 20)
 	memoryInstance := memcore.InitMemorya(memSize, memStore)
 
+	toolset := []tools.Tool{
+		tools.NewTimeTool(),
+		tools.NewWebSearchTool(searxURL()),
+		tools.NewPlaywrightTool(playwrightHeadless(), envInt("NAIMA_PLAYWRIGHT_TIMEOUT_MS", 30000)),
+		tools.NewLongMemoryTool(client, llmConfig.Model, llmConfig.EmbeddingModel, memStore),
+	}
+	if token := strings.TrimSpace(os.Getenv("TELEGRAM_BOT_TOKEN")); token != "" {
+		toolset = append(toolset, tools.NewTelegramSendTool(token, os.Getenv("NAIMA_SESSION_FILE")))
+	}
+
 	agentInstance := agent.New(
 		*name,
 		systemPrompt,
@@ -90,12 +100,7 @@ func main() {
 		llmConfig.Model,
 		llmConfig.EmbeddingModel,
 		memoryInstance,
-		[]tools.Tool{
-			tools.NewTimeTool(),
-			tools.NewWebSearchTool(searxURL()),
-			tools.NewPlaywrightTool(playwrightHeadless(), envInt("NAIMA_PLAYWRIGHT_TIMEOUT_MS", 30000)),
-			tools.NewLongMemoryTool(client, llmConfig.Model, llmConfig.EmbeddingModel, memStore),
-		},
+		toolset,
 	)
 
 	apiEnabled := httpapi.IsEnabled()

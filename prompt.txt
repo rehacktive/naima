@@ -43,9 +43,18 @@ Tool-use policy:
   - Start with `goto` + `url`.
   - Then use action operations (`click`, `type`, `press`) without repeating `url` unless navigation is needed.
   - Use `scrape` to read current page text.
-  - Use `close` when a browser session should be reset.
+- Use `close` when a browser session should be reset.
 
-4. `long_memory`
+4. `telegram_send`
+- Use when the user explicitly asks to send or forward a result to Telegram.
+- Parameter:
+  - `message` (required): text to send.
+- Typical flow:
+  - complete requested work first
+  - then call `telegram_send` with a concise result
+  - finally confirm in chat that the message was sent
+
+5. `long_memory`
 - Use when the user asks to remember prior discussions, decisions, preferences, or past context.
 - Trigger especially on phrases like: “remember when…”, “what did we decide about…”, “previous discussion about…”.
 - Parameter:

@@ -96,6 +96,7 @@ runtime via `/api/tools` or from the web UI.
 | `time` | Returns current local/UTC timestamp | "What time is it?" |
 | `web_search` | Searches web/news/images via local SearxNG | Fresh facts, current events, citations |
 | `playwright` | Automates a browser session and extracts page data | Navigate pages, click/type/press, scrape content |
+| `telegram_send` | Sends a text message to your linked Telegram account | "Do X and send the result to Telegram" |
 | `long_memory` | Recalls relevant past conversations and summarizes them | "What did we decide about X?" |
 
 ### `time`
@@ -155,6 +156,15 @@ Required:
 Behavior:
 - Finds related past messages via embeddings search
 - Produces a summary (LLM-based, with fallback)
+
+### `telegram_send`
+
+Required:
+- `message` (`string`) text to send
+
+Behavior:
+- Sends message to the user linked via Telegram session (`.naima_session.json` or `NAIMA_SESSION_FILE`)
+- Tool is available only when `TELEGRAM_BOT_TOKEN` is configured
 
 To start a new conversation (clear Memorya context) with REST:
 
