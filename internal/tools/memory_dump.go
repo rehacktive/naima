@@ -50,10 +50,7 @@ func (t *MemoryDumpTool) GetFunction() func(params string) string {
 			if err := json.Unmarshal([]byte(params), &in); err != nil {
 				return errorJSON("invalid params: " + err.Error())
 			}
-			limit = in.Limit
-			if limit < 0 {
-				limit = 0
-			}
+			limit = max(in.Limit, 0)
 		}
 
 		messages := t.memory.GetMessages()

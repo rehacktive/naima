@@ -88,7 +88,7 @@ func (s *FileStorage) load() error {
 }
 
 func (s *FileStorage) persistLocked() error {
-	if err := os.MkdirAll(filepath.Dir(s.path), 0o755); err != nil {
+	if err := os.MkdirAll(filepath.Dir(s.path), 0o750); err != nil {
 		return fmt.Errorf("create memory dir failed: %w", err)
 	}
 

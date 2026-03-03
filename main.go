@@ -19,6 +19,7 @@ import (
 	"naima/internal/httpapi"
 	"naima/internal/llm"
 	"naima/internal/memory"
+	"naima/internal/safeio"
 	"naima/internal/tasks"
 	"naima/internal/telegram"
 	"naima/internal/tools"
@@ -198,7 +199,7 @@ func playwrightHeadless() bool {
 
 func loadSystemPrompt() (string, error) {
 	path := promptPath()
-	data, err := os.ReadFile(path)
+	data, err := safeio.ReadFile(path)
 	if err != nil {
 		return "", fmt.Errorf("read system prompt file failed (%s): %w", path, err)
 	}

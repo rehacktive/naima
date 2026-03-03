@@ -253,7 +253,7 @@ func RunServer(ctx context.Context, agentInstance *agent.Agent) error {
 	shutdownErr := make(chan error, 1)
 	go func() {
 		<-ctx.Done()
-		shutdownCtx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+		shutdownCtx, cancel := context.WithTimeout(context.WithoutCancel(ctx), 5*time.Second)
 		defer cancel()
 		shutdownErr <- srv.Shutdown(shutdownCtx)
 	}()

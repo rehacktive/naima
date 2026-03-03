@@ -68,10 +68,7 @@ func (t *PlaywrightTool) GetFunction() func(params string) string {
 			return errorJSON("operation is required")
 		}
 
-		waitMS := in.WaitMS
-		if waitMS < 0 {
-			waitMS = 0
-		}
+		waitMS := max(in.WaitMS, 0)
 		if waitMS == 0 {
 			waitMS = defaultPlaywrightWaitMS
 		}

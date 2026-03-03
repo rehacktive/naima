@@ -14,6 +14,8 @@ import (
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
 	log "github.com/sirupsen/logrus"
 
+	"naima/internal/safeio"
+
 	"naima/internal/agent"
 )
 
@@ -224,7 +226,7 @@ func sessionFilePath() string {
 }
 
 func loadSession(path string) (sessionData, error) {
-	data, err := os.ReadFile(path)
+	data, err := safeio.ReadFile(path)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return sessionData{}, nil

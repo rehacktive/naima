@@ -214,10 +214,3 @@ func summarizeMemoryFallback(messages []memstorage.Message, maxItems int) string
 
 	return strings.Join(lines, "\n")
 }
-
-func min(a int, b int) int {
-	if a < b {
-		return a
-	}
-	return b
-}

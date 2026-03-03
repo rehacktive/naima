@@ -5,11 +5,13 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+
+	"naima/internal/safeio"
 )
 
 func serveUI(w http.ResponseWriter, _ *http.Request) {
 	path := filepath.Join(uiDir(), "index.html")
-	data, err := os.ReadFile(path)
+	data, err := safeio.ReadFile(path)
 	if err != nil {
 		http.Error(w, "ui file not found", http.StatusNotFound)
 		return

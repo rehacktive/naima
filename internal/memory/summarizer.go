@@ -119,13 +119,6 @@ func (s *LLMSummarizer) Summarize(messages []memstorage.Message) (memstorage.Mes
 	}, nil
 }
 
-func min(a int, b int) int {
-	if a < b {
-		return a
-	}
-	return b
-}
-
 func buildFallbackSummary(items []string) string {
 	if len(items) == 0 {
 		return "Summary: no previous messages to summarize."
