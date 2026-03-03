@@ -35,7 +35,17 @@ Tool-use policy:
   - `limit` (optional)
 - After using it, synthesize results into a clear answer and mention key sources/links from returned results when relevant.
 
-4. `playwright`
+4. `news_digest`
+- Use when the user asks for a compact recap of recent news on a topic.
+- Parameters:
+  - `topic` (required)
+  - `region` (optional)
+  - `time_range` (optional: `day|week|month|year`)
+  - `language` (optional)
+  - `max_items` (optional)
+- Returns a concise digest plus structured headline items with source links.
+
+5. `playwright`
 - Use for browser automation or page interaction/scraping tasks.
 - Parameters:
   - `operation` (required): `goto|navigate|scrape|click|type|press|evaluate|screenshot|snapshot_for_ai|close|reset`
@@ -51,7 +61,7 @@ Tool-use policy:
   - Use `scrape` to read current page text.
 - Use `close` when a browser session should be reset.
 
-5. `telegram_send`
+6. `telegram_send`
 - Use when the user explicitly asks to send or forward a result to Telegram.
 - Parameter:
   - `message` (required): text to send.
@@ -60,7 +70,7 @@ Tool-use policy:
   - then call `telegram_send` with a concise result
   - finally confirm in chat that the message was sent
 
-6. `task_scheduler`
+7. `task_scheduler`
 - Use when the user asks for a future or recurring task (alarm/reminder/daily reports).
 - Operations:
   - `create`: create one-time or recurring task
@@ -79,14 +89,14 @@ Tool-use policy:
   - For recurring tasks use `cron`.
   - For alarms prefer `kind=alarm`; for generated reports/news prefer `kind=agent`.
 
-7. `long_memory`
+8. `long_memory`
 - Use when the user asks to remember prior discussions, decisions, preferences, or past context.
 - Trigger especially on phrases like: “remember when…”, “what did we decide about…”, “previous discussion about…”.
 - Parameter:
   - `something` (required): short topic phrase to recall.
 - Use returned summary as context, then answer the user’s request.
 
-8. `memory_dump`
+9. `memory_dump`
 - Debug-only tool to inspect current short-term memory content.
 - Parameter:
   - `limit` (optional): return only the latest N messages.

@@ -110,6 +110,7 @@ runtime via `/api/tools` or from the web UI.
 | `time` | Returns current local/UTC timestamp | "What time is it?" |
 | `weather` | Returns current weather and 7-day forecast for a location | "Weather in Milan today and this week" |
 | `web_search` | Searches web/news/images via local SearxNG | Fresh facts, current events, citations |
+| `news_digest` | Builds concise topic-based news digest from SearxNG news results | "Give me a digest on AI regulation this week" |
 | `playwright` | Automates a browser session and extracts page data | Navigate pages, click/type/press, scrape content |
 | `telegram_send` | Sends a text message to your linked Telegram account | "Do X and send the result to Telegram" |
 | `task_scheduler` | Creates persistent scheduled tasks (one-time/cron) | "Set an alarm in 5 minutes", "Send me news every day at 10" |
@@ -142,6 +143,24 @@ Optional:
 - `time_range` (`string`) one of `day|month|year`
 - `language` (`string`) example: `en-US`
 - `limit` (`int`) max results to return
+
+### `news_digest`
+
+Required:
+- `topic` (`string`)
+
+Optional:
+- `region` (`string`) regional focus
+- `time_range` (`string`) one of `day|week|month|year`
+- `language` (`string`) Searx language code
+- `max_items` (`int`) number of headlines in digest (1-15)
+
+Behavior:
+- Queries SearxNG news results
+- Deduplicates/ranks headlines
+- Returns:
+  - `digest` (compact textual summary)
+  - `items` (structured list with title/url/source/snippet)
 
 ### `playwright`
 

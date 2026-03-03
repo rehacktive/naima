@@ -96,6 +96,7 @@ func main() {
 		tools.NewTimeTool(),
 		tools.NewWeatherTool(),
 		tools.NewWebSearchTool(searxURL()),
+		tools.NewNewsDigestTool(searxURL()),
 		tools.NewPlaywrightTool(playwrightHeadless(), envInt("NAIMA_PLAYWRIGHT_TIMEOUT_MS", 30000)),
 		tools.NewTaskSchedulerTool(taskManager),
 		tools.NewLongMemoryTool(client, llmConfig.Model, llmConfig.EmbeddingModel, memStore),
