@@ -55,6 +55,7 @@ func RunServer(ctx context.Context, agentInstance *agent.Agent) error {
 	}
 
 	mux := http.NewServeMux()
+	mux.Handle("/ui/", http.StripPrefix("/ui/", http.FileServer(http.Dir(uiDir()))))
 	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
 		if !authorizeUIRequest(r, cfg.UIBasicAuthUser, cfg.UIBasicAuthPass) {
 			w.Header().Set("WWW-Authenticate", `Basic realm="Naima UI", charset="UTF-8"`)
