@@ -18,6 +18,59 @@
       --bubble-user: #132a34;
       --bubble-ai: #0f1f2a;
       --border: #1f3f4b;
+      --ops-bg: #0d141c;
+      --ops-top-bg: #0a1219;
+      --surface: #0b1118;
+      --surface-2: #101a24;
+      --send-fg: #0B0F14;
+    }
+    body.theme-quantum {
+      --bg: #0E2A47;
+      --panel: #102d4b;
+      --text: #d4c8ff;
+      --muted: #b8a6ff;
+      --accent: #a88cff;
+      --accent-2: #8b6dff;
+      --bubble-user: #173a60;
+      --bubble-ai: #122f4d;
+      --border: #6e6fc9;
+      --ops-bg: #102f50;
+      --ops-top-bg: #0f2a45;
+      --surface: #16395d;
+      --surface-2: #1b4067;
+      --send-fg: #0e1f34;
+    }
+    body.theme-void-light {
+      --bg: #3DF2E0;
+      --panel: #d7fffa;
+      --text: #0B0F14;
+      --muted: #20343f;
+      --accent: #0B0F14;
+      --accent-2: #1e2a36;
+      --bubble-user: #baf7ef;
+      --bubble-ai: #cffff7;
+      --border: #2e5662;
+      --ops-bg: #e9fffc;
+      --ops-top-bg: #dcfffb;
+      --surface: #f5fffd;
+      --surface-2: #d5f7f2;
+      --send-fg: #3DF2E0;
+    }
+    body.theme-quantum-light {
+      --bg: #d4c8ff;
+      --panel: #efe8ff;
+      --text: #0E2A47;
+      --muted: #2c4360;
+      --accent: #0E2A47;
+      --accent-2: #244a73;
+      --bubble-user: #e5dcff;
+      --bubble-ai: #f2edff;
+      --border: #4e5f8f;
+      --ops-bg: #f1ebff;
+      --ops-top-bg: #e8dfff;
+      --surface: #faf7ff;
+      --surface-2: #e8dcff;
+      --send-fg: #8A6CFF;
     }
     * {
       box-sizing: border-box;
@@ -51,7 +104,7 @@
       bottom: 0;
       width: 380px;
       border-left: 1px solid var(--border);
-      background: #0d141c;
+      background: var(--ops-bg);
       display: flex;
       flex-direction: column;
       min-height: 100vh;
@@ -75,7 +128,7 @@
     }
     .ops-collapse {
       border: 1px solid var(--border);
-      background: #101a24;
+      background: var(--surface-2);
       color: var(--text);
       border-radius: 6px;
       font-size: 10px;
@@ -99,7 +152,7 @@
       padding: 8px 10px;
       font-size: 11px;
       color: var(--text);
-      background: #0b1118;
+      background: var(--surface);
       line-height: 1.35;
       white-space: pre-wrap;
       word-break: break-word;
@@ -125,30 +178,82 @@
     a:active {
       color: #36cfc1;
     }
-    .ops-top {
-      padding: 12px;
+    .settings-panel {
       border-bottom: 1px solid var(--border);
+      background: var(--ops-top-bg);
+      padding: 8px 10px;
       display: flex;
       flex-direction: column;
       gap: 8px;
-      background: #0a1219;
-      max-height: 46vh;
+    }
+    .settings-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+    .settings-head h3 {
+      margin: 0;
+      padding: 0;
+      border: 0;
+      font-size: 12px;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--muted);
+    }
+    .settings-collapse {
+      border: 1px solid var(--border);
+      background: var(--surface-2);
+      color: var(--text);
+      border-radius: 6px;
+      font-size: 10px;
+      line-height: 1;
+      padding: 4px 6px;
+      cursor: pointer;
+    }
+    .settings-body {
+      padding: 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+      max-height: 30vh;
       overflow-y: auto;
     }
-    .ops-top input[type="password"] {
+    .theme-row {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 6px;
+    }
+    .theme-row label {
+      font-size: 10px;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+    .theme-row select {
+      width: 100%;
+      height: 34px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 0 8px;
+      background: var(--surface);
+      color: var(--text);
+      font-size: 11px;
+    }
+    .settings-body input[type="password"] {
       width: 100%;
       height: 38px;
       border: 1px solid var(--border);
       border-radius: 8px;
       padding: 0 10px;
       font-size: 11px;
-      background: #0b1118;
+      background: var(--surface);
       color: var(--text);
     }
-    .ops-top button {
+    .settings-body button {
       height: 36px;
       border: 1px solid var(--border);
-      background: #101a24;
+      background: var(--surface-2);
       color: var(--text);
       border-radius: 8px;
       padding: 0 10px;
@@ -158,7 +263,7 @@
     .tools-panel {
       border: 1px solid var(--border);
       border-radius: 8px;
-      background: #0b1118;
+      background: var(--surface);
       padding: 8px;
       min-height: 190px;
       display: flex;
@@ -186,7 +291,7 @@
     }
     .tools-collapse {
       border: 1px solid var(--border);
-      background: #101a24;
+      background: var(--surface-2);
       color: var(--text);
       border-radius: 6px;
       font-size: 10px;
@@ -197,7 +302,7 @@
     .memory-panel {
       border: 1px solid var(--border);
       border-radius: 8px;
-      background: #0b1118;
+      background: var(--surface);
       padding: 8px;
       min-height: 120px;
       display: flex;
@@ -225,7 +330,7 @@
     }
     .memory-collapse {
       border: 1px solid var(--border);
-      background: #101a24;
+      background: var(--surface-2);
       color: var(--text);
       border-radius: 6px;
       font-size: 10px;
@@ -242,7 +347,7 @@
       border: 1px solid var(--border);
       border-radius: 6px;
       padding: 6px;
-      background: #0d141c;
+      background: var(--ops-bg);
       min-width: 0;
     }
     .memory-key {
@@ -280,7 +385,7 @@
       border: 1px solid var(--border);
       border-radius: 6px;
       padding: 6px 7px;
-      background: #0d141c;
+      background: var(--ops-bg);
     }
     .tool-name {
       color: var(--text);
@@ -330,14 +435,14 @@
     }
     .user .bubble {
       background: var(--bubble-user);
-      border-color: #27515f;
+      border-color: var(--border);
     }
     .ai .bubble {
       background: var(--bubble-ai);
     }
     .composer {
       border-top: 1px solid var(--border);
-      background: #0d141c;
+      background: var(--ops-bg);
       padding: 10px;
       display: grid;
       grid-template-columns: 1fr auto;
@@ -355,7 +460,7 @@
       padding: 10px 12px;
       font-size: 13px;
       font-family: inherit;
-      background: #0b1118;
+      background: var(--surface);
       color: var(--text);
     }
     .send {
@@ -364,7 +469,7 @@
       border: 0;
       border-radius: 10px;
       background: var(--accent);
-      color: #0B0F14;
+      color: var(--send-fg);
       font-weight: 600;
       cursor: pointer;
     }
@@ -404,23 +509,38 @@
     <div id="status" class="status"></div>
   </div>
   <aside class="ops">
-    <div class="ops-top">
-      <input id="token" type="password" placeholder="API token (Bearer)" autocomplete="off">
-      <button id="saveToken">Save token</button>
-      <div class="tools-panel">
-        <div class="tools-head">
-          <p class="tools-title">Tools</p>
-          <button id="toolsCollapse" class="tools-collapse" type="button">Hide</button>
-        </div>
-        <div id="toolsList" class="tools-list"></div>
+    <div class="settings-panel">
+      <div class="settings-head">
+        <h3>Settings</h3>
+        <button id="settingsCollapse" class="settings-collapse" type="button">Hide</button>
       </div>
-      <div class="memory-panel">
-        <div class="memory-head">
-          <p class="memory-title">Memory</p>
-          <button id="memoryCollapse" class="memory-collapse" type="button">Hide</button>
+      <div id="settingsBody" class="settings-body">
+        <div class="theme-row">
+          <label for="themeSelect">Theme</label>
+          <select id="themeSelect">
+            <option value="void">Void</option>
+            <option value="void-light">Void Light</option>
+            <option value="quantum">Quantum</option>
+            <option value="quantum-light">Quantum Light</option>
+          </select>
         </div>
-        <div id="memoryList" class="memory-list"></div>
+        <input id="token" type="password" placeholder="API token (Bearer)" autocomplete="off">
+        <button id="saveToken">Save token</button>
       </div>
+    </div>
+    <div class="tools-panel">
+      <div class="tools-head">
+        <p class="tools-title">Tools</p>
+        <button id="toolsCollapse" class="tools-collapse" type="button">Hide</button>
+      </div>
+      <div id="toolsList" class="tools-list"></div>
+    </div>
+    <div class="memory-panel">
+      <div class="memory-head">
+        <p class="memory-title">Memory</p>
+        <button id="memoryCollapse" class="memory-collapse" type="button">Hide</button>
+      </div>
+      <div id="memoryList" class="memory-list"></div>
     </div>
     <div class="ops-head">
       <h3>Operations</h3>
@@ -435,6 +555,9 @@
     const saveTokenBtn = document.getElementById("saveToken");
     const inputEl = document.getElementById("input");
     const sendBtn = document.getElementById("send");
+    const themeSelectEl = document.getElementById("themeSelect");
+    const settingsBodyEl = document.getElementById("settingsBody");
+    const settingsCollapseEl = document.getElementById("settingsCollapse");
     const messagesEl = document.getElementById("messages");
     const statusEl = document.getElementById("status");
     const opsListEl = document.getElementById("opsList");
@@ -448,16 +571,26 @@
     let newConversationOnNextSend = true;
 
     const tokenKey = "naima_api_token";
+    const themeKey = "naima_theme";
+    const settingsCollapsedKey = "naima_settings_collapsed";
     const toolsCollapsedKey = "naima_tools_collapsed";
     const opsCollapsedKey = "naima_ops_collapsed";
     const memoryCollapsedKey = "naima_memory_collapsed";
     tokenEl.value = localStorage.getItem(tokenKey) || "";
+    const savedTheme = normalizeTheme(localStorage.getItem(themeKey) || "void");
+    themeSelectEl.value = savedTheme;
+    applyTheme(themeSelectEl.value);
 
     saveTokenBtn.addEventListener("click", () => {
       localStorage.setItem(tokenKey, tokenEl.value.trim());
       setStatus("Token saved locally.");
       loadTools();
       loadMemoryStatus();
+    });
+    themeSelectEl.addEventListener("change", () => {
+      const value = normalizeTheme(themeSelectEl.value);
+      localStorage.setItem(themeKey, value);
+      applyTheme(value);
     });
 
     sendBtn.addEventListener("click", sendMessage);
@@ -478,6 +611,7 @@
     applyToolsCollapsed(localStorage.getItem(toolsCollapsedKey) === "1");
     applyOpsCollapsed(localStorage.getItem(opsCollapsedKey) === "1");
     applyMemoryCollapsed(localStorage.getItem(memoryCollapsedKey) === "1");
+    applySettingsCollapsed(localStorage.getItem(settingsCollapsedKey) === "1");
     toolsCollapseEl.addEventListener("click", () => {
       const next = !toolsListEl.classList.contains("is-hidden");
       applyToolsCollapsed(next);
@@ -487,6 +621,11 @@
       const next = !opsListEl.classList.contains("is-hidden");
       applyOpsCollapsed(next);
       localStorage.setItem(opsCollapsedKey, next ? "1" : "0");
+    });
+    settingsCollapseEl.addEventListener("click", () => {
+      const next = !settingsBodyEl.classList.contains("is-hidden");
+      applySettingsCollapsed(next);
+      localStorage.setItem(settingsCollapsedKey, next ? "1" : "0");
     });
     memoryCollapseEl.addEventListener("click", () => {
       const next = !memoryListEl.classList.contains("is-hidden");
@@ -723,10 +862,29 @@
       opsCollapseEl.textContent = collapsed ? "Show" : "Hide";
     }
 
+    function applyTheme(theme) {
+      const normalized = normalizeTheme(theme);
+      document.body.classList.remove("theme-void", "theme-void-light", "theme-quantum", "theme-quantum-light");
+      document.body.classList.add("theme-" + normalized);
+    }
+
+    function normalizeTheme(value) {
+      const v = (value || "").toLowerCase();
+      if (v === "quantum" || v === "void-light" || v === "quantum-light") {
+        return v;
+      }
+      return "void";
+    }
+
     function applyMemoryCollapsed(collapsed) {
       memoryListEl.classList.toggle("is-hidden", !!collapsed);
       memoryPanelEl.classList.toggle("collapsed", !!collapsed);
       memoryCollapseEl.textContent = collapsed ? "Show" : "Hide";
+    }
+
+    function applySettingsCollapsed(collapsed) {
+      settingsBodyEl.classList.toggle("is-hidden", !!collapsed);
+      settingsCollapseEl.textContent = collapsed ? "Show" : "Hide";
     }
 
     async function sendMessage() {

@@ -54,7 +54,26 @@ Tool-use policy:
   - then call `telegram_send` with a concise result
   - finally confirm in chat that the message was sent
 
-5. `long_memory`
+5. `task_scheduler`
+- Use when the user asks for a future or recurring task (alarm/reminder/daily reports).
+- Operations:
+  - `create`: create one-time or recurring task
+  - `list`: show existing tasks
+  - `cancel`: disable a task by id
+- Parameters for `create`:
+  - `kind`: `alarm` (fixed text) or `agent` (run prompt through model)
+  - `title`: short task title
+  - `content` (or `prompt`/`message`): what to execute/send
+  - `in`: relative duration (example `5m`)
+  - `run_at`: RFC3339 timestamp for one-time task
+  - `cron`: recurring schedule (5-field cron)
+  - `send_telegram`: send result to Telegram (default `true`)
+- Rules:
+  - For one-time tasks use exactly one of `in` or `run_at`.
+  - For recurring tasks use `cron`.
+  - For alarms prefer `kind=alarm`; for generated reports/news prefer `kind=agent`.
+
+6. `long_memory`
 - Use when the user asks to remember prior discussions, decisions, preferences, or past context.
 - Trigger especially on phrases like: “remember when…”, “what did we decide about…”, “previous discussion about…”.
 - Parameter:

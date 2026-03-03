@@ -19,6 +19,7 @@ import (
 	"naima/internal/httpapi"
 	"naima/internal/llm"
 	"naima/internal/memory"
+	"naima/internal/tasks"
 	"naima/internal/telegram"
 	"naima/internal/tools"
 )
@@ -82,11 +83,18 @@ func main() {
 	defer memStore.Close()
 	memSize := envInt("NAIMA_MEMORY_MAX_CONTEXT", 20)
 	memoryInstance := memcore.InitMemorya(memSize, memStore)
+	telegramNotifier := telegram.NewNotifier(strings.TrimSpace(os.Getenv("TELEGRAM_BOT_TOKEN")), os.Getenv("NAIMA_SESSION_FILE"))
+	taskManager, err := tasks.NewManager(ctx, pgvectorDSN(), telegramNotifier, taskLocation())
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err.Error())
+		os.Exit(1)
+	}
 
 	toolset := []tools.Tool{
 		tools.NewTimeTool(),
 		tools.NewWebSearchTool(searxURL()),
 		tools.NewPlaywrightTool(playwrightHeadless(), envInt("NAIMA_PLAYWRIGHT_TIMEOUT_MS", 30000)),
+		tools.NewTaskSchedulerTool(taskManager),
 		tools.NewLongMemoryTool(client, llmConfig.Model, llmConfig.EmbeddingModel, memStore),
 	}
 	if token := strings.TrimSpace(os.Getenv("TELEGRAM_BOT_TOKEN")); token != "" {
@@ -102,6 +110,11 @@ func main() {
 		memoryInstance,
 		toolset,
 	)
+	taskManager.SetAgent(agentInstance)
+	if err := taskManager.Start(ctx); err != nil {
+		fmt.Fprintln(os.Stderr, err.Error())
+		os.Exit(1)
+	}
 
 	apiEnabled := httpapi.IsEnabled()
 	telegramEnabled := strings.TrimSpace(os.Getenv("TELEGRAM_BOT_TOKEN")) != ""
@@ -192,6 +205,18 @@ func loadSystemPrompt() (string, error) {
 	}
 
 	return prompt, nil
+}
+
+func taskLocation() *time.Location {
+	raw := strings.TrimSpace(os.Getenv("NAIMA_TASK_TIMEZONE"))
+	if raw == "" {
+		return time.UTC
+	}
+	loc, err := time.LoadLocation(raw)
+	if err != nil {
+		return time.UTC
+	}
+	return loc
 }
 
 func envInt(key string, fallback int) int {

@@ -97,6 +97,7 @@ runtime via `/api/tools` or from the web UI.
 | `web_search` | Searches web/news/images via local SearxNG | Fresh facts, current events, citations |
 | `playwright` | Automates a browser session and extracts page data | Navigate pages, click/type/press, scrape content |
 | `telegram_send` | Sends a text message to your linked Telegram account | "Do X and send the result to Telegram" |
+| `task_scheduler` | Creates persistent scheduled tasks (one-time/cron) | "Set an alarm in 5 minutes", "Send me news every day at 10" |
 | `long_memory` | Recalls relevant past conversations and summarizes them | "What did we decide about X?" |
 
 ### `time`
@@ -166,6 +167,44 @@ Behavior:
 - Sends message to the user linked via Telegram session (`.naima_session.json` or `NAIMA_SESSION_FILE`)
 - Tool is available only when `TELEGRAM_BOT_TOKEN` is configured
 
+### `task_scheduler`
+
+Operations:
+- `create`: create a task
+- `list`: list tasks
+- `cancel`: disable task by id
+
+Create parameters:
+- `kind`: `alarm` or `agent`
+  - `alarm`: sends fixed `content` when triggered
+  - `agent`: runs `content` as a prompt through Naima at trigger time
+- `title`: short label
+- `content` (or `prompt`/`message`): task payload
+- one-time schedule:
+  - `in`: relative duration (`5m`, `2h`)
+  - or `run_at`: RFC3339 timestamp
+- recurring schedule:
+  - `cron`: 5-field cron expression (`minute hour day month weekday`)
+- `send_telegram`: default `true`
+
+Examples:
+- Alarm in 5 minutes:
+```json
+{"operation":"create","kind":"alarm","title":"Alarm","content":"Time is up","in":"5m","send_telegram":true}
+```
+- Daily news at 10:00:
+```json
+{"operation":"create","kind":"agent","title":"Daily news","content":"Get latest world news summary","cron":"0 10 * * *","send_telegram":true}
+```
+- List tasks:
+```json
+{"operation":"list"}
+```
+- Cancel task:
+```json
+{"operation":"cancel","id":12}
+```
+
 To start a new conversation (clear Memorya context) with REST:
 
 ```sh
@@ -221,6 +260,7 @@ Optional environment variables:
   default `true`).
 - `NAIMA_PLAYWRIGHT_TIMEOUT_MS`: Playwright navigation/action timeout in
   milliseconds (default `30000`).
+- `NAIMA_TASK_TIMEZONE`: timezone used for cron interpretation (default `UTC`).
 - `NAIMA_UI_DIR`: directory containing `index.html` for the built-in web UI
   (default `./internal/httpapi/ui`).
 
@@ -232,5 +272,7 @@ Notes:
 - On each new incoming message, Naima computes embeddings before storing it in Memorya.
 - The web UI includes a collapsible Memory panel (between Tools and Operations)
   showing Memorya `GetStatus()` fields.
+- Scheduled tasks are persisted in PostgreSQL (`scheduled_tasks`) and restored
+  automatically on restart.
 - `docker/searxng/settings.yml` is mounted into the SearxNG container and
   enables `json` output so the `web_search` tool can parse results.
