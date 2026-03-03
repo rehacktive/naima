@@ -43,6 +43,12 @@ Naima serves a built-in chat UI at:
 
 - [http://localhost:8080/](http://localhost:8080/)
 
+Optional Basic Auth for UI:
+- `NAIMA_UI_BASIC_AUTH_USER`
+- `NAIMA_UI_BASIC_AUTH_PASS`
+
+When both are set, the browser asks for username/password before loading the UI.
+
 Enter your API token in the page, then chat. Responses stream from
 `/api/messages/stream`.
 The UI file is served from disk (`internal/httpapi/ui/index.html`) so page

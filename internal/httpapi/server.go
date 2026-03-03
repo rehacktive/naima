@@ -55,7 +55,14 @@ func RunServer(ctx context.Context, agentInstance *agent.Agent) error {
 	}
 
 	mux := http.NewServeMux()
-	mux.HandleFunc("/", serveUI)
+	mux.HandleFunc("/", func(w http.ResponseWriter, r *http.Request) {
+		if !authorizeUIRequest(r, cfg.UIBasicAuthUser, cfg.UIBasicAuthPass) {
+			w.Header().Set("WWW-Authenticate", `Basic realm="Naima UI", charset="UTF-8"`)
+			writeError(w, http.StatusUnauthorized, "unauthorized")
+			return
+		}
+		serveUI(w, r)
+	})
 	mux.HandleFunc("/api/tools", func(w http.ResponseWriter, r *http.Request) {
 		if !authorizeRequest(r, cfg.Token) {
 			writeError(w, http.StatusUnauthorized, "unauthorized")
@@ -258,8 +265,10 @@ func RunServer(ctx context.Context, agentInstance *agent.Agent) error {
 }
 
 type config struct {
-	Addr  string
-	Token string
+	Addr            string
+	Token           string
+	UIBasicAuthUser string
+	UIBasicAuthPass string
 }
 
 func loadConfig() (config, error) {
@@ -271,8 +280,18 @@ func loadConfig() (config, error) {
 	if token == "" {
 		return config{}, errors.New("NAIMA_API_TOKEN is not set")
 	}
+	uiUser := strings.TrimSpace(os.Getenv("NAIMA_UI_BASIC_AUTH_USER"))
+	uiPass := strings.TrimSpace(os.Getenv("NAIMA_UI_BASIC_AUTH_PASS"))
+	if (uiUser == "") != (uiPass == "") {
+		return config{}, errors.New("both NAIMA_UI_BASIC_AUTH_USER and NAIMA_UI_BASIC_AUTH_PASS must be set")
+	}
 
-	return config{Addr: addr, Token: token}, nil
+	return config{
+		Addr:            addr,
+		Token:           token,
+		UIBasicAuthUser: uiUser,
+		UIBasicAuthPass: uiPass,
+	}, nil
 }
 
 func authorizeRequest(r *http.Request, token string) bool {
@@ -282,6 +301,26 @@ func authorizeRequest(r *http.Request, token string) bool {
 	}
 	provided := strings.TrimSpace(strings.TrimPrefix(header, bearerPrefix))
 	return subtle.ConstantTimeCompare([]byte(token), []byte(provided)) == 1
+}
+
+func authorizeUIRequest(r *http.Request, user string, pass string) bool {
+	if user == "" && pass == "" {
+		return true
+	}
+
+	u, p, ok := r.BasicAuth()
+	if !ok {
+		return false
+	}
+
+	if subtle.ConstantTimeCompare([]byte(user), []byte(u)) != 1 {
+		return false
+	}
+	if subtle.ConstantTimeCompare([]byte(pass), []byte(p)) != 1 {
+		return false
+	}
+
+	return true
 }
 
 func writeJSON(w http.ResponseWriter, status int, payload any) {
