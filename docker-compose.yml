@@ -15,8 +15,11 @@ services:
     environment:
       NAIMA_PGVECTOR_DSN: postgres://naima:naima@pgvector:5432/naima?sslmode=disable
       NAIMA_SEARX_URL: http://searxng:8080
+      NAIMA_SESSION_FILE: /data/.naima_session.json
     ports:
       - "8080:8080"
+    volumes:
+      - naima_data:/data
 
   pgvector:
     image: pgvector/pgvector:pg16
@@ -69,3 +72,4 @@ services:
 
 volumes:
   pgvector_data:
+  naima_data:

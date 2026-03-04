@@ -25,6 +25,8 @@ docker run --rm -it --env-file .env -p 8080:8080 --name naima naima:latest
 On first run, the app prints a link code in the terminal. Send that code to the bot
 in Telegram to bind the agent to your user ID. After that, only your user can chat
 with the agent.
+When using Docker Compose, this link session is persisted in the `naima_data`
+volume (`/data/.naima_session.json`) so you do not need to relink on each restart.
 
 Telegram audio messages are supported:
 - voice/audio messages are transcribed via OpenAI `/audio/transcriptions`
