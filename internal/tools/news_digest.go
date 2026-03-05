@@ -12,7 +12,7 @@ import (
 
 const (
 	defaultNewsDigestTimeout = 15 * time.Second
-	defaultNewsDigestLimit   = 6
+	defaultNewsDigestLimit   = 10
 	maxNewsDigestLimit       = 15
 )
 
@@ -270,7 +270,7 @@ func buildDigest(topic string, region string, items []newsItem) string {
 	}
 	lines = append(lines, header+":")
 
-	n := min(4, len(items))
+	n := min(10, len(items))
 	for i := 0; i < n; i++ {
 		line := fmt.Sprintf("%d. %s", i+1, items[i].Title)
 		if items[i].Source != "" {
