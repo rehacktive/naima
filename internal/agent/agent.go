@@ -95,31 +95,41 @@ func (a *Agent) processMessage(ctx context.Context, input string, onDelta func(s
 	default:
 	}
 
-	if a.Client == nil {
-		return "", fmt.Errorf("llm client is not configured")
-	}
-	if a.Model == "" {
-		return "", fmt.Errorf("llm model is not configured")
-	}
-	if a.SystemPrompt == "" {
-		return "", fmt.Errorf("system prompt is not configured")
-	}
-	if a.EmbeddingModel == "" {
-		return "", fmt.Errorf("embedding model is not configured")
-	}
-	if a.Memory == nil {
-		return "", fmt.Errorf("memory is not configured")
+	normalizedInput := strings.TrimSpace(input)
+	if normalizedInput == "" {
+		return "", fmt.Errorf("message is required")
 	}
 
 	a.mu.Lock()
-	defer a.mu.Unlock()
+	client := a.Client
+	model := a.Model
+	embeddingModel := a.EmbeddingModel
+	systemPrompt := a.SystemPrompt
+	memoryStore := a.Memory
+	activeTools := a.enabledToolsLocked()
+	a.mu.Unlock()
 
-	normalizedInput := strings.TrimSpace(input)
+	if client == nil {
+		return "", fmt.Errorf("llm client is not configured")
+	}
+	if model == "" {
+		return "", fmt.Errorf("llm model is not configured")
+	}
+	if systemPrompt == "" {
+		return "", fmt.Errorf("system prompt is not configured")
+	}
+	if embeddingModel == "" {
+		return "", fmt.Errorf("embedding model is not configured")
+	}
+	if memoryStore == nil {
+		return "", fmt.Errorf("memory is not configured")
+	}
+
 	log.Infof("[agent] message received chars=%d", len(normalizedInput))
 	emitOp(onOp, "message received")
-	embResp, err := a.Client.CreateEmbeddings(ctx, openai.EmbeddingRequest{
+	embResp, err := client.CreateEmbeddings(ctx, openai.EmbeddingRequest{
 		Input: []string{normalizedInput},
-		Model: openai.EmbeddingModel(a.EmbeddingModel),
+		Model: openai.EmbeddingModel(embeddingModel),
 	})
 	if err != nil {
 		return "", fmt.Errorf("embedding request failed: %w", err)
@@ -132,30 +142,32 @@ func (a *Agent) processMessage(ctx context.Context, input string, onDelta func(s
 	emitOp(onOp, fmt.Sprintf("embeddings generated (dim=%d)", len(emb)))
 
 	now := time.Now().UTC()
-	a.Memory.AddMessage(memstorage.Message{
+	a.mu.Lock()
+	memoryStore.AddMessage(memstorage.Message{
 		Role:       openai.ChatMessageRoleUser,
 		Content:    normalizedInput,
 		Embeddings: &emb,
 		CreatedAt:  &now,
 	}, false)
+	memoryMessages := memoryStore.GetMessages()
+	a.mu.Unlock()
 	log.Infof("[agent] user message saved to memory")
 	emitOp(onOp, "user message saved")
 
-	messages := make([]openai.ChatCompletionMessage, 0, len(a.Memory.GetMessages())+1)
+	messages := make([]openai.ChatCompletionMessage, 0, len(memoryMessages)+1)
 	messages = append(messages, openai.ChatCompletionMessage{
 		Role:    openai.ChatMessageRoleSystem,
-		Content: a.SystemPrompt,
+		Content: systemPrompt,
 	})
-	for _, msg := range a.Memory.GetMessages() {
+	for _, msg := range memoryMessages {
 		messages = append(messages, openai.ChatCompletionMessage{
 			Role:    normalizeRole(msg.Role),
 			Content: msg.Content,
 		})
 	}
 
-	activeTools := a.enabledTools()
 	req := openai.ChatCompletionRequest{
-		Model:    a.Model,
+		Model:    model,
 		Messages: messages,
 	}
 	if len(activeTools) > 0 {
@@ -164,7 +176,7 @@ func (a *Agent) processMessage(ctx context.Context, input string, onDelta func(s
 	log.Infof("[agent] sending model request context_messages=%d tools=%d", len(messages), len(req.Tools))
 	emitOp(onOp, "model request started")
 
-	msg, err := a.runModel(ctx, req, onDelta)
+	msg, err := a.runModel(ctx, client, req, onDelta)
 	if err != nil {
 		return "", fmt.Errorf("llm request failed: %w", err)
 	}
@@ -194,11 +206,13 @@ func (a *Agent) processMessage(ctx context.Context, input string, onDelta func(s
 			}
 			if tool.IsImmediate() {
 				now = time.Now().UTC()
-				a.Memory.AddMessage(memstorage.Message{
+				a.mu.Lock()
+				memoryStore.AddMessage(memstorage.Message{
 					Role:      openai.ChatMessageRoleAssistant,
 					Content:   out,
 					CreatedAt: &now,
 				}, false)
+				a.mu.Unlock()
 				log.Infof("[agent] replied via immediate tool name=%s elapsed=%s", call.Function.Name, time.Since(startedAt).Round(time.Millisecond))
 				emitOp(onOp, "reply sent (immediate tool)")
 				return out, nil
@@ -217,7 +231,7 @@ func (a *Agent) processMessage(ctx context.Context, input string, onDelta func(s
 		}
 
 		followReq := openai.ChatCompletionRequest{
-			Model:    a.Model,
+			Model:    model,
 			Messages: messages,
 		}
 		if len(activeTools) > 0 {
@@ -226,7 +240,7 @@ func (a *Agent) processMessage(ctx context.Context, input string, onDelta func(s
 		log.Infof("[agent] sending follow-up model request after tool execution round=%d", toolRound)
 		emitOp(onOp, fmt.Sprintf("model follow-up after tools (round=%d)", toolRound))
 
-		msg, err = a.runModel(ctx, followReq, onDelta)
+		msg, err = a.runModel(ctx, client, followReq, onDelta)
 		if err != nil {
 			return "", fmt.Errorf("llm request failed after tool execution: %w", err)
 		}
@@ -237,20 +251,22 @@ func (a *Agent) processMessage(ctx context.Context, input string, onDelta func(s
 		return "", fmt.Errorf("llm returned an empty response")
 	}
 	now = time.Now().UTC()
-	a.Memory.AddMessage(memstorage.Message{
+	a.mu.Lock()
+	memoryStore.AddMessage(memstorage.Message{
 		Role:      openai.ChatMessageRoleAssistant,
 		Content:   answer,
 		CreatedAt: &now,
 	}, false)
+	a.mu.Unlock()
 	log.Infof("[agent] assistant message saved; replied chars=%d elapsed=%s", len(answer), time.Since(startedAt).Round(time.Millisecond))
 	emitOp(onOp, "assistant replied")
 
 	return answer, nil
 }
 
-func (a *Agent) runModel(ctx context.Context, req openai.ChatCompletionRequest, onDelta func(string)) (openai.ChatCompletionMessage, error) {
+func (a *Agent) runModel(ctx context.Context, client *openai.Client, req openai.ChatCompletionRequest, onDelta func(string)) (openai.ChatCompletionMessage, error) {
 	if onDelta == nil {
-		response, err := a.Client.CreateChatCompletion(ctx, req)
+		response, err := client.CreateChatCompletion(ctx, req)
 		if err != nil {
 			return openai.ChatCompletionMessage{}, err
 		}
@@ -260,7 +276,7 @@ func (a *Agent) runModel(ctx context.Context, req openai.ChatCompletionRequest, 
 		return response.Choices[0].Message, nil
 	}
 
-	stream, err := a.Client.CreateChatCompletionStream(ctx, req)
+	stream, err := client.CreateChatCompletionStream(ctx, req)
 	if err != nil {
 		return openai.ChatCompletionMessage{}, err
 	}
@@ -487,7 +503,7 @@ func enabledMap(toolMap map[string]tools.Tool) map[string]bool {
 	return out
 }
 
-func (a *Agent) enabledTools() map[string]tools.Tool {
+func (a *Agent) enabledToolsLocked() map[string]tools.Tool {
 	out := make(map[string]tools.Tool, len(a.Tools))
 	for name, tool := range a.Tools {
 		if a.ToolEnabled[name] {

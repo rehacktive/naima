@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net"
 	"net/http"
+	"net/netip"
 	"net/url"
 	"regexp"
 	"strings"
@@ -26,6 +28,8 @@ var (
 	reHTMLTags    = regexp.MustCompile(`(?is)<[^>]+>`)
 	reMultiSpace  = regexp.MustCompile(`\s+`)
 	reHTMLTitle   = regexp.MustCompile(`(?is)<title[^>]*>(.*?)</title>`)
+
+	blockedIPv4CGNAT = netip.MustParsePrefix("100.64.0.0/10")
 )
 
 type PKBStorage interface {
@@ -293,6 +297,10 @@ func (t *PersonalKnowledgeBaseTool) fetchURLContent(ctx context.Context, rawURL 
 	if err != nil {
 		return "", "", fmt.Errorf("invalid url: %w", err)
 	}
+	if err := validateFetchURL(ctx, u); err != nil {
+		return "", "", err
+	}
+
 	if u.Scheme != "http" && u.Scheme != "https" {
 		return "", "", fmt.Errorf("unsupported url scheme: %s", u.Scheme)
 	}
@@ -302,7 +310,16 @@ func (t *PersonalKnowledgeBaseTool) fetchURLContent(ctx context.Context, rawURL 
 		return "", "", fmt.Errorf("build url request failed: %w", err)
 	}
 	req.Header.Set("User-Agent", "naima-pkb/1.0")
-	resp, err := t.client.Do(req)
+
+	client := *t.client
+	client.CheckRedirect = func(redirectReq *http.Request, _ []*http.Request) error {
+		if err := validateFetchURL(redirectReq.Context(), redirectReq.URL); err != nil {
+			return err
+		}
+		return nil
+	}
+
+	resp, err := client.Do(req)
 	if err != nil {
 		return "", "", fmt.Errorf("fetch url failed: %w", err)
 	}
@@ -332,6 +349,82 @@ func (t *PersonalKnowledgeBaseTool) fetchURLContent(ctx context.Context, rawURL 
 	}
 	content = truncateRunes(content, maxStoredContentRunes)
 	return title, content, nil
+}
+
+func validateFetchURL(ctx context.Context, u *url.URL) error {
+	if u == nil {
+		return fmt.Errorf("invalid url")
+	}
+	scheme := strings.ToLower(strings.TrimSpace(u.Scheme))
+	if scheme != "http" && scheme != "https" {
+		return fmt.Errorf("unsupported url scheme: %s", u.Scheme)
+	}
+	if u.User != nil {
+		return fmt.Errorf("url userinfo is not allowed")
+	}
+	host := strings.TrimSpace(u.Hostname())
+	if host == "" {
+		return fmt.Errorf("url host is required")
+	}
+	if isBlockedHostname(host) {
+		return fmt.Errorf("blocked host")
+	}
+
+	if ip := net.ParseIP(host); ip != nil {
+		if isBlockedIP(ip) {
+			return fmt.Errorf("blocked target ip")
+		}
+		return nil
+	}
+
+	resolved, err := net.DefaultResolver.LookupIPAddr(ctx, host)
+	if err != nil {
+		return fmt.Errorf("resolve host failed: %w", err)
+	}
+	if len(resolved) == 0 {
+		return fmt.Errorf("resolve host failed: no ips")
+	}
+	for _, addr := range resolved {
+		if isBlockedIP(addr.IP) {
+			return fmt.Errorf("blocked target ip")
+		}
+	}
+
+	return nil
+}
+
+func isBlockedHostname(host string) bool {
+	h := strings.ToLower(strings.TrimSpace(host))
+	if h == "" {
+		return true
+	}
+	if h == "localhost" || strings.HasSuffix(h, ".localhost") {
+		return true
+	}
+	if strings.HasSuffix(h, ".local") || strings.HasSuffix(h, ".internal") {
+		return true
+	}
+	return false
+}
+
+func isBlockedIP(ip net.IP) bool {
+	if ip == nil {
+		return true
+	}
+	if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() {
+		return true
+	}
+	if ip.IsMulticast() || ip.IsUnspecified() {
+		return true
+	}
+
+	if addr, ok := netip.AddrFromSlice(ip); ok {
+		if blockedIPv4CGNAT.Contains(addr.Unmap()) {
+			return true
+		}
+	}
+
+	return false
 }
 
 func extractHTMLTitle(raw string) string {
