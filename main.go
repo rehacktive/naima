@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"syscall"
@@ -117,6 +118,7 @@ func main() {
 	agentInstance := agent.New(
 		*name,
 		systemPrompt,
+		toolPromptsDir(),
 		client,
 		llmConfig.Model,
 		llmConfig.EmbeddingModel,
@@ -192,6 +194,14 @@ func promptPath() string {
 	}
 
 	return "prompt.txt"
+}
+
+func toolPromptsDir() string {
+	if p := strings.TrimSpace(os.Getenv("NAIMA_TOOL_PROMPTS_DIR")); p != "" {
+		return p
+	}
+
+	return filepath.Join(".", "internal", "tools")
 }
 
 func playwrightHeadless() bool {

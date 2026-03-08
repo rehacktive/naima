@@ -105,6 +105,11 @@ curl -sS -X POST "http://localhost:8080/api/tools" \
 Naima can call tools during model responses. You can enable/disable tools at
 runtime via `/api/tools` or from the web UI.
 
+Tool prompt guidance is dynamic:
+- Base prompt is loaded from `prompt.txt`.
+- Per-tool guidance is loaded from `internal/tools/<tool_name>.md`.
+- Only enabled tools have their guidance injected into the model system prompt.
+
 ### Available tools
 
 | Tool | What it does | Typical use |
@@ -342,6 +347,9 @@ Optional environment variables:
 - `NAIMA_TASK_TIMEZONE`: timezone used for cron interpretation (default `UTC`).
 - `NAIMA_UI_DIR`: directory containing `index.html` for the built-in web UI
   (default `./internal/httpapi/ui`).
+- `NAIMA_TOOL_PROMPTS_DIR`: directory containing per-tool prompt files
+  (`<tool_name>.md`) used for dynamic tool guidance injection
+  (default `./internal/tools`).
 
 Notes:
 

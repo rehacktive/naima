@@ -19,6 +19,7 @@ WORKDIR /app
 
 COPY --from=builder /out/naima /app/naima
 COPY prompt.txt /app/prompt.txt
+COPY internal/tools/*.md /app/internal/tools/
 COPY internal/httpapi/ui /app/internal/httpapi/ui
 
 EXPOSE 8080

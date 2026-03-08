@@ -6,6 +6,8 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"os"
+	"path/filepath"
 	"sort"
 	"strings"
 	"sync"
@@ -25,6 +27,7 @@ const maxToolLogChars = 220
 type Agent struct {
 	Name           string
 	SystemPrompt   string
+	ToolPromptDir  string
 	Client         *openai.Client
 	Model          string
 	EmbeddingModel string
@@ -54,7 +57,7 @@ type MemoryStatusView struct {
 	RecallMessages  int `json:"recall_messages"`
 }
 
-func New(name string, systemPrompt string, client *openai.Client, model string, embeddingModel string, memory ConversationMemory, toolset []tools.Tool) *Agent {
+func New(name string, systemPrompt string, toolPromptDir string, client *openai.Client, model string, embeddingModel string, memory ConversationMemory, toolset []tools.Tool) *Agent {
 	toolMap := make(map[string]tools.Tool, len(toolset))
 	for _, tool := range toolset {
 		if tool == nil {
@@ -66,6 +69,7 @@ func New(name string, systemPrompt string, client *openai.Client, model string, 
 	return &Agent{
 		Name:           name,
 		SystemPrompt:   strings.TrimSpace(systemPrompt),
+		ToolPromptDir:  strings.TrimSpace(toolPromptDir),
 		Client:         client,
 		Model:          model,
 		EmbeddingModel: embeddingModel,
@@ -105,9 +109,12 @@ func (a *Agent) processMessage(ctx context.Context, input string, onDelta func(s
 	model := a.Model
 	embeddingModel := a.EmbeddingModel
 	systemPrompt := a.SystemPrompt
+	toolPromptDir := a.ToolPromptDir
 	memoryStore := a.Memory
 	activeTools := a.enabledToolsLocked()
 	a.mu.Unlock()
+
+	systemPrompt = composeSystemPrompt(systemPrompt, toolPromptDir, activeTools)
 
 	if client == nil {
 		return "", fmt.Errorf("llm client is not configured")
@@ -262,6 +269,41 @@ func (a *Agent) processMessage(ctx context.Context, input string, onDelta func(s
 	emitOp(onOp, "assistant replied")
 
 	return answer, nil
+}
+
+func composeSystemPrompt(base string, toolPromptDir string, activeTools map[string]tools.Tool) string {
+	base = strings.TrimSpace(base)
+	if toolPromptDir == "" || len(activeTools) == 0 {
+		return base
+	}
+
+	names := make([]string, 0, len(activeTools))
+	for name := range activeTools {
+		names = append(names, name)
+	}
+	sort.Strings(names)
+
+	sections := make([]string, 0, len(names))
+	for _, name := range names {
+		path := filepath.Join(toolPromptDir, name+".md")
+		data, err := os.ReadFile(path)
+		if err != nil {
+			continue
+		}
+		content := strings.TrimSpace(string(data))
+		if content == "" {
+			continue
+		}
+		sections = append(sections, fmt.Sprintf("Tool `%s` guidance:\n%s", name, content))
+	}
+
+	if len(sections) == 0 {
+		return base
+	}
+	if base == "" {
+		return strings.Join(sections, "\n\n")
+	}
+	return base + "\n\n" + strings.Join(sections, "\n\n")
 }
 
 func (a *Agent) runModel(ctx context.Context, client *openai.Client, req openai.ChatCompletionRequest, onDelta func(string)) (openai.ChatCompletionMessage, error) {
