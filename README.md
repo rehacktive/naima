@@ -9,6 +9,7 @@ cp .env.example .env
 # Edit .env and set OPENAI_API_KEY, OPENAI_MODEL, and OPENAI_EMBEDDING_MODEL
 # Set TELEGRAM_BOT_TOKEN to enable Telegram, or NAIMA_API_TOKEN to enable the REST API
 # Optionally set OPENAI_BASE_URL for a local or OpenAI-compatible endpoint
+# Set DOMAIN to your public DNS name pointing to this host (used by Caddy for TLS)
 docker compose up -d --build
 ```
 
@@ -42,7 +43,10 @@ to change the listen address (default `:8080`).
 
 Naima serves a built-in chat UI at:
 
-- [http://localhost:8080/](http://localhost:8080/)
+- [https://YOUR_DOMAIN/](https://YOUR_DOMAIN/)
+
+When running through Docker Compose, Caddy terminates TLS on standard ports and
+proxies traffic to Naima inside the Docker network.
 
 Optional Basic Auth for UI:
 - `NAIMA_UI_BASIC_AUTH_USER`
