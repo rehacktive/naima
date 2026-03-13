@@ -39,6 +39,7 @@ type PKBStorage interface {
 	DeleteTopic(ctx context.Context, topicID int64) error
 	CreateDocument(ctx context.Context, req pkb.CreateDocumentRequest) (pkb.Document, error)
 	ListDocuments(ctx context.Context, topicID int64) ([]pkb.Document, error)
+	ListDocumentsByTimeRange(ctx context.Context, req pkb.ListDocumentsRangeRequest) ([]pkb.Document, error)
 	UpdateDocument(ctx context.Context, req pkb.UpdateDocumentRequest) (pkb.Document, error)
 	DeleteDocument(ctx context.Context, documentID int64) error
 }
@@ -57,6 +58,9 @@ type pkbParams struct {
 	URL        string `json:"url,omitempty"`
 	Note       string `json:"note,omitempty"`
 	Content    string `json:"content,omitempty"`
+	Timeframe  string `json:"timeframe,omitempty"`
+	Since      string `json:"since,omitempty"`
+	Until      string `json:"until,omitempty"`
 }
 
 func NewPersonalKnowledgeBaseTool(store PKBStorage) Tool {
@@ -202,6 +206,30 @@ func (t *PersonalKnowledgeBaseTool) GetFunction() func(params string) string {
 				return errorJSON(err.Error())
 			}
 			return mustJSON(map[string]any{"operation": op, "topic_id": in.TopicID, "count": len(docs), "documents": docs})
+		case "temporal_search":
+			since, until, label, err := resolveTemporalRange(in.Timeframe, in.Since, in.Until, time.Now().UTC())
+			if err != nil {
+				return errorJSON(err.Error())
+			}
+			docs, err := t.store.ListDocumentsByTimeRange(ctx, pkb.ListDocumentsRangeRequest{
+				TopicID: in.TopicID,
+				Since:   since,
+				Until:   until,
+			})
+			if err != nil {
+				return errorJSON(err.Error())
+			}
+			structured := buildTemporalStructuredDocument(label, in.TopicID, docs, since, until)
+			return mustJSON(map[string]any{
+				"operation":           op,
+				"timeframe":           label,
+				"topic_id":            in.TopicID,
+				"since":               since.Format(time.RFC3339),
+				"until":               until.Format(time.RFC3339),
+				"count":               len(docs),
+				"documents":           docs,
+				"structured_document": structured,
+			})
 		case "update_document":
 			if in.DocumentID <= 0 {
 				return errorJSON("document_id is required")
@@ -255,6 +283,7 @@ func (t *PersonalKnowledgeBaseTool) GetParameters() Parameters {
 					"delete_topic",
 					"add_content",
 					"list_documents",
+					"temporal_search",
 					"update_document",
 					"delete_document",
 				},
@@ -287,9 +316,137 @@ func (t *PersonalKnowledgeBaseTool) GetParameters() Parameters {
 				"type":        "string",
 				"description": "Explicit document content for add/update document.",
 			},
+			"timeframe": map[string]any{
+				"type":        "string",
+				"description": "For temporal_search: preset time window.",
+				"enum":        []string{"today", "week", "month"},
+			},
+			"since": map[string]any{
+				"type":        "string",
+				"description": "For temporal_search: custom RFC3339 start time.",
+			},
+			"until": map[string]any{
+				"type":        "string",
+				"description": "For temporal_search: custom RFC3339 end time.",
+			},
 		},
 		Required: []string{"operation"},
 	}
+}
+
+func resolveTemporalRange(timeframe string, sinceRaw string, untilRaw string, now time.Time) (time.Time, time.Time, string, error) {
+	timeframe = strings.ToLower(strings.TrimSpace(timeframe))
+	sinceRaw = strings.TrimSpace(sinceRaw)
+	untilRaw = strings.TrimSpace(untilRaw)
+
+	if sinceRaw != "" || untilRaw != "" {
+		if sinceRaw == "" || untilRaw == "" {
+			return time.Time{}, time.Time{}, "", fmt.Errorf("both since and until are required for custom range")
+		}
+		since, err := time.Parse(time.RFC3339, sinceRaw)
+		if err != nil {
+			return time.Time{}, time.Time{}, "", fmt.Errorf("invalid since (expected RFC3339)")
+		}
+		until, err := time.Parse(time.RFC3339, untilRaw)
+		if err != nil {
+			return time.Time{}, time.Time{}, "", fmt.Errorf("invalid until (expected RFC3339)")
+		}
+		if !since.Before(until) {
+			return time.Time{}, time.Time{}, "", fmt.Errorf("since must be before until")
+		}
+		return since.UTC(), until.UTC(), "custom", nil
+	}
+
+	startOfDay := time.Date(now.Year(), now.Month(), now.Day(), 0, 0, 0, 0, time.UTC)
+	switch timeframe {
+	case "", "today":
+		return startOfDay, now.UTC(), "today", nil
+	case "week":
+		return startOfDay.AddDate(0, 0, -6), now.UTC(), "week", nil
+	case "month":
+		return startOfDay.AddDate(0, 0, -29), now.UTC(), "month", nil
+	default:
+		return time.Time{}, time.Time{}, "", fmt.Errorf("unsupported timeframe: %s", timeframe)
+	}
+}
+
+func buildTemporalStructuredDocument(label string, topicID int64, docs []pkb.Document, since time.Time, until time.Time) map[string]any {
+	title := "PKB temporal summary"
+	if label != "" {
+		title += " - " + label
+	}
+
+	sections := make([]map[string]any, 0, len(docs))
+	builder := strings.Builder{}
+	builder.WriteString(title)
+	builder.WriteString("\n")
+	builder.WriteString("Range: ")
+	builder.WriteString(since.Format(time.RFC3339))
+	builder.WriteString(" -> ")
+	builder.WriteString(until.Format(time.RFC3339))
+	if topicID > 0 {
+		builder.WriteString("\nTopic ID: ")
+		builder.WriteString(fmt.Sprintf("%d", topicID))
+	}
+	builder.WriteString("\n\n")
+
+	for _, doc := range docs {
+		sectionTitle := strings.TrimSpace(doc.Title)
+		if sectionTitle == "" {
+			sectionTitle = fmt.Sprintf("Document %d", doc.ID)
+		}
+		builder.WriteString("## ")
+		builder.WriteString(sectionTitle)
+		builder.WriteString("\n")
+		builder.WriteString("Topic: ")
+		if strings.TrimSpace(doc.TopicTitle) != "" {
+			builder.WriteString(doc.TopicTitle)
+		} else {
+			builder.WriteString(fmt.Sprintf("%d", doc.TopicID))
+		}
+		builder.WriteString("\nKind: ")
+		builder.WriteString(doc.Kind)
+		if strings.TrimSpace(doc.SourceURL) != "" {
+			builder.WriteString("\nSource: ")
+			builder.WriteString(doc.SourceURL)
+		}
+		if doc.CreatedAt != nil {
+			builder.WriteString("\nCreated: ")
+			builder.WriteString(doc.CreatedAt.UTC().Format(time.RFC3339))
+		}
+		builder.WriteString("\n\n")
+		builder.WriteString(doc.Content)
+		builder.WriteString("\n\n")
+
+		sections = append(sections, map[string]any{
+			"document_id": doc.ID,
+			"title":       sectionTitle,
+			"topic_id":    doc.TopicID,
+			"topic_title": doc.TopicTitle,
+			"kind":        doc.Kind,
+			"source_url":  doc.SourceURL,
+			"created_at":  formatOptionalTime(doc.CreatedAt),
+			"content":     doc.Content,
+		})
+	}
+
+	return map[string]any{
+		"title":     title,
+		"timeframe": label,
+		"since":     since.Format(time.RFC3339),
+		"until":     until.Format(time.RFC3339),
+		"topic_id":  topicID,
+		"documents": len(docs),
+		"sections":  sections,
+		"full_text": strings.TrimSpace(builder.String()),
+	}
+}
+
+func formatOptionalTime(t *time.Time) string {
+	if t == nil {
+		return ""
+	}
+	return t.UTC().Format(time.RFC3339)
 }
 
 func (t *PersonalKnowledgeBaseTool) fetchURLContent(ctx context.Context, rawURL string) (string, string, error) {

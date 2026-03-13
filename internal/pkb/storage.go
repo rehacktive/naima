@@ -48,14 +48,15 @@ type Topic struct {
 }
 
 type Document struct {
-	ID        int64      `json:"id"`
-	TopicID   int64      `json:"topic_id"`
-	Kind      string     `json:"kind"`
-	Title     string     `json:"title"`
-	SourceURL string     `json:"source_url,omitempty"`
-	Content   string     `json:"content"`
-	CreatedAt *time.Time `json:"created_at,omitempty"`
-	UpdatedAt *time.Time `json:"updated_at,omitempty"`
+	ID         int64      `json:"id"`
+	TopicID    int64      `json:"topic_id"`
+	TopicTitle string     `json:"topic_title,omitempty"`
+	Kind       string     `json:"kind"`
+	Title      string     `json:"title"`
+	SourceURL  string     `json:"source_url,omitempty"`
+	Content    string     `json:"content"`
+	CreatedAt  *time.Time `json:"created_at,omitempty"`
+	UpdatedAt  *time.Time `json:"updated_at,omitempty"`
 }
 
 type CreateDocumentRequest struct {
@@ -71,6 +72,12 @@ type UpdateDocumentRequest struct {
 	Title      string
 	SourceURL  string
 	Content    string
+}
+
+type ListDocumentsRangeRequest struct {
+	TopicID int64
+	Since   time.Time
+	Until   time.Time
 }
 
 func NewStorage(ctx context.Context, dsn string) (*Storage, error) {
@@ -307,6 +314,43 @@ func (s *Storage) DeleteDocument(ctx context.Context, documentID int64) error {
 		return fmt.Errorf("document not found: %d", documentID)
 	}
 	return nil
+}
+
+func (s *Storage) ListDocumentsByTimeRange(ctx context.Context, req ListDocumentsRangeRequest) ([]Document, error) {
+	if req.Since.IsZero() || req.Until.IsZero() {
+		return nil, errors.New("since and until are required")
+	}
+	if !req.Since.Before(req.Until) {
+		return nil, errors.New("since must be before until")
+	}
+
+	query := `
+SELECT d.id, d.topic_id, t.title, d.kind, d.title, d.source_url, d.content, d.created_at, d.updated_at
+FROM pkb_documents d
+JOIN pkb_topics t ON t.id = d.topic_id
+WHERE d.created_at >= $1
+  AND d.created_at < $2
+  AND ($3::BIGINT = 0 OR d.topic_id = $3)
+ORDER BY d.created_at DESC, d.id DESC;
+`
+	rows, err := s.pool.Query(ctx, query, req.Since.UTC(), req.Until.UTC(), req.TopicID)
+	if err != nil {
+		return nil, fmt.Errorf("list documents by time range failed: %w", err)
+	}
+	defer rows.Close()
+
+	out := make([]Document, 0)
+	for rows.Next() {
+		var d Document
+		if err := rows.Scan(&d.ID, &d.TopicID, &d.TopicTitle, &d.Kind, &d.Title, &d.SourceURL, &d.Content, &d.CreatedAt, &d.UpdatedAt); err != nil {
+			return nil, fmt.Errorf("scan ranged document failed: %w", err)
+		}
+		out = append(out, d)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate ranged documents failed: %w", err)
+	}
+	return out, nil
 }
 
 func isUniqueViolation(err error) bool {

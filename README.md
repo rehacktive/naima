@@ -185,6 +185,7 @@ Operations:
 - Documents:
   - `add_content` (`topic_id` + `url` and/or `note`, optional `title`/`content`)
   - `list_documents` (`topic_id`)
+  - `temporal_search` (`timeframe` or `since`/`until`, optional `topic_id`)
   - `update_document` (`document_id`, `content`, optional `title`/`url`)
   - `delete_document` (`document_id`)
 
@@ -194,6 +195,10 @@ Behavior:
 - `add_content` supports:
   - URL ingestion (fetches webpage text and stores it)
   - manual notes (stores provided note/content)
+- `temporal_search` supports:
+  - presets: `today`, `week`, `month`
+  - custom RFC3339 range with `since` and `until`
+  - returns matching documents plus one aggregated `structured_document`
 
 ### `playwright`
 
