@@ -9,7 +9,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -218,16 +217,16 @@ func transcribeTelegramAudio(ctx context.Context, bot *tgbotapi.BotAPI, client *
 		return "", "", errors.New("telegram audio file id is empty")
 	}
 
-	fileURL, err := bot.GetFileDirectURL(audio.FileID)
+	filePath, err := telegramFilePath(ctx, bot, audio.FileID)
 	if err != nil {
-		return "", "", fmt.Errorf("get telegram file url failed: %w", err)
+		return "", "", err
 	}
-	content, err := downloadTelegramFile(ctx, bot, fileURL, maxTelegramAudioBytes)
+	content, err := downloadTelegramFile(ctx, bot, filePath, maxTelegramAudioBytes)
 	if err != nil {
 		return "", "", err
 	}
 
-	fileName := normalizeAudioFilename(audio.FileName, fileURL)
+	fileName := normalizeAudioFilename(audio.FileName, filePath)
 	req := openai.AudioRequest{
 		Model:    transcriptionModel(),
 		FilePath: fileName,
@@ -247,11 +246,30 @@ func transcribeTelegramAudio(ctx context.Context, bot *tgbotapi.BotAPI, client *
 	return text, lang, nil
 }
 
-func downloadTelegramFile(ctx context.Context, bot *tgbotapi.BotAPI, fileURL string, maxBytes int64) ([]byte, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, fileURL, nil)
+func telegramFilePath(ctx context.Context, bot *tgbotapi.BotAPI, fileID string) (string, error) {
+	if strings.TrimSpace(fileID) == "" {
+		return "", errors.New("telegram file id is empty")
+	}
+	file, err := bot.GetFile(tgbotapi.FileConfig{FileID: fileID})
+	if err != nil {
+		return "", fmt.Errorf("get telegram file failed: %w", err)
+	}
+	filePath := strings.TrimSpace(file.FilePath)
+	if filePath == "" {
+		return "", errors.New("telegram file path is empty")
+	}
+	return filePath, nil
+}
+
+func downloadTelegramFile(ctx context.Context, bot *tgbotapi.BotAPI, filePath string, maxBytes int64) ([]byte, error) {
+	if strings.TrimSpace(filePath) == "" {
+		return nil, errors.New("telegram file path is empty")
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, "https://api.telegram.org/", nil)
 	if err != nil {
 		return nil, fmt.Errorf("build telegram download request failed: %w", err)
 	}
+	req.URL.Path = fmt.Sprintf("/file/bot%s/%s", bot.Token, strings.TrimLeft(filePath, "/"))
 
 	httpClient := bot.Client
 	if httpClient == nil {
@@ -281,16 +299,14 @@ func downloadTelegramFile(ctx context.Context, bot *tgbotapi.BotAPI, fileURL str
 	return data, nil
 }
 
-func normalizeAudioFilename(fileName string, fileURL string) string {
+func normalizeAudioFilename(fileName string, filePath string) string {
 	name := strings.TrimSpace(fileName)
 	if name == "" {
 		name = "audio-input"
 	}
 
-	if u, err := url.Parse(fileURL); err == nil {
-		if base := strings.TrimSpace(filepath.Base(u.Path)); base != "" && base != "." && base != "/" {
-			name = base
-		}
+	if base := strings.TrimSpace(filepath.Base(filePath)); base != "" && base != "." && base != "/" {
+		name = base
 	}
 
 	ext := strings.ToLower(strings.TrimSpace(filepath.Ext(name)))

@@ -6,7 +6,6 @@ import (
 	"errors"
 	"fmt"
 	"io"
-	"os"
 	"path/filepath"
 	"sort"
 	"strings"
@@ -18,6 +17,7 @@ import (
 	openai "github.com/sashabaranov/go-openai"
 	log "github.com/sirupsen/logrus"
 
+	"naima/internal/safeio"
 	"naima/internal/tools"
 )
 
@@ -286,7 +286,7 @@ func composeSystemPrompt(base string, toolPromptDir string, activeTools map[stri
 	sections := make([]string, 0, len(names))
 	for _, name := range names {
 		path := filepath.Join(toolPromptDir, name+".md")
-		data, err := os.ReadFile(path)
+		data, err := safeio.ReadFile(path)
 		if err != nil {
 			continue
 		}
