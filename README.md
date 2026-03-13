@@ -50,9 +50,14 @@ proxies traffic to Naima inside the Docker network.
 
 Optional Basic Auth for UI:
 - `NAIMA_UI_BASIC_AUTH_USER`
-- `NAIMA_UI_BASIC_AUTH_PASS`
+- `NAIMA_UI_BASIC_AUTH_PASS` (SHA256 hex digest of the real password)
 
 When both are set, the browser asks for username/password before loading the UI.
+Generate the hash value with:
+
+```sh
+./hash_ui_basic_auth_pass.sh "your-password"
+```
 
 Enter your API token in the page, then chat. Responses stream from
 `/api/messages/stream`.

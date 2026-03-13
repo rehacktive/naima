@@ -2,7 +2,9 @@ package httpapi
 
 import (
 	"context"
+	"crypto/sha256"
 	"crypto/subtle"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
 	"fmt"
@@ -286,6 +288,9 @@ func loadConfig() (config, error) {
 	if (uiUser == "") != (uiPass == "") {
 		return config{}, errors.New("both NAIMA_UI_BASIC_AUTH_USER and NAIMA_UI_BASIC_AUTH_PASS must be set")
 	}
+	if uiPass != "" && !isSHA256Hex(uiPass) {
+		return config{}, errors.New("NAIMA_UI_BASIC_AUTH_PASS must be a lowercase SHA256 hex digest")
+	}
 
 	return config{
 		Addr:            addr,
@@ -317,10 +322,25 @@ func authorizeUIRequest(r *http.Request, user string, pass string) bool {
 	if subtle.ConstantTimeCompare([]byte(user), []byte(u)) != 1 {
 		return false
 	}
-	if subtle.ConstantTimeCompare([]byte(pass), []byte(p)) != 1 {
+	sum := sha256.Sum256([]byte(p))
+	providedHash := hex.EncodeToString(sum[:])
+	if subtle.ConstantTimeCompare([]byte(pass), []byte(providedHash)) != 1 {
 		return false
 	}
 
+	return true
+}
+
+func isSHA256Hex(v string) bool {
+	if len(v) != 64 {
+		return false
+	}
+	for _, r := range v {
+		if (r >= '0' && r <= '9') || (r >= 'a' && r <= 'f') {
+			continue
+		}
+		return false
+	}
 	return true
 }
 
