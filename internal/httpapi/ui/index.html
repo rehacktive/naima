@@ -865,6 +865,7 @@
       pointer: null,
       resizeObserver: null,
       animationFrame: 0,
+      resizeAnimationFrame: 0,
       drag: { active: false, x: 0, y: 0 },
       orbit: { yaw: 0.75, pitch: 0.55, radius: 28 },
       target: { currentX: 0, currentY: 2, currentZ: 0, goalX: 0, goalY: 2, goalZ: 0 },
@@ -950,13 +951,14 @@
     });
     pkbShellEl.addEventListener("transitionrun", () => {
       if (!pkbOverlayEl.classList.contains("is-hidden")) {
-        requestAnimationFrame(resizePKBRenderer);
+        startPKBResizeLoop();
       }
     });
     pkbShellEl.addEventListener("transitionend", () => {
       if (!pkbOverlayEl.classList.contains("is-hidden")) {
         resizePKBRenderer();
       }
+      stopPKBResizeLoop();
     });
     document.addEventListener("keydown", (event) => {
       if (event.key === "Escape" && !pkbOverlayEl.classList.contains("is-hidden")) {
@@ -1387,6 +1389,26 @@
       updatePKBCamera();
     }
 
+    function startPKBResizeLoop() {
+      stopPKBResizeLoop();
+      const tick = () => {
+        if (pkbOverlayEl.classList.contains("is-hidden")) {
+          stopPKBResizeLoop();
+          return;
+        }
+        resizePKBRenderer();
+        pkbSceneState.resizeAnimationFrame = requestAnimationFrame(tick);
+      };
+      pkbSceneState.resizeAnimationFrame = requestAnimationFrame(tick);
+    }
+
+    function stopPKBResizeLoop() {
+      if (pkbSceneState.resizeAnimationFrame) {
+        cancelAnimationFrame(pkbSceneState.resizeAnimationFrame);
+        pkbSceneState.resizeAnimationFrame = 0;
+      }
+    }
+
     function updatePKBCamera() {
       if (!pkbSceneState.camera) {
         return;
@@ -1635,6 +1657,7 @@
     }
 
     function closePKBView() {
+      stopPKBResizeLoop();
       pkbOverlayEl.classList.add("is-hidden");
       pkbShellEl.classList.remove("has-selection");
       addOp("topics view closed");
