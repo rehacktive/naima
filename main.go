@@ -147,7 +147,7 @@ func main() {
 		running++
 		go func() {
 			log.Infof("[agent] starting web interface")
-			errCh <- httpapi.RunServer(ctx, agentInstance)
+			errCh <- httpapi.RunServer(ctx, agentInstance, pkbStorage)
 		}()
 	}
 

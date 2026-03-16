@@ -401,6 +401,29 @@
       max-height: 260px;
       overflow-y: auto;
     }
+    .tools-action {
+      width: 100%;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: var(--surface-2);
+      color: var(--text);
+      padding: 8px 10px;
+      font-size: 10px;
+      cursor: pointer;
+      text-align: left;
+      margin-bottom: 6px;
+    }
+    .pkb-launch {
+      width: 100%;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: var(--surface-2);
+      color: var(--text);
+      padding: 10px 12px;
+      font-size: 11px;
+      cursor: pointer;
+      text-align: left;
+    }
     .is-hidden {
       display: none !important;
     }
@@ -512,6 +535,181 @@
       min-height: 18px;
       flex-shrink: 0;
     }
+    .pkb-overlay {
+      position: fixed;
+      inset: 0;
+      background: rgba(6, 10, 16, 0.92);
+      backdrop-filter: blur(8px);
+      z-index: 20;
+      display: flex;
+      padding: 18px;
+    }
+    .pkb-shell {
+      width: 100%;
+      height: 100%;
+      border: 1px solid var(--border);
+      border-radius: 16px;
+      background: linear-gradient(180deg, var(--panel), var(--surface));
+      display: grid;
+      grid-template-columns: minmax(320px, 60%) minmax(320px, 40%);
+      overflow: hidden;
+      transition: grid-template-columns 420ms ease;
+    }
+    .pkb-shell.has-selection {
+      grid-template-columns: minmax(320px, 40%) minmax(320px, 60%);
+    }
+    .pkb-stage {
+      position: relative;
+      min-width: 0;
+      min-height: 0;
+      background:
+        radial-gradient(circle at top, rgba(61, 242, 224, 0.12), transparent 35%),
+        linear-gradient(180deg, rgba(255,255,255,0.03), rgba(0,0,0,0.1));
+    }
+    .pkb-canvas {
+      width: 100%;
+      height: 100%;
+      display: block;
+      cursor: grab;
+    }
+    .pkb-canvas.dragging {
+      cursor: grabbing;
+    }
+    .pkb-toolbar {
+      position: absolute;
+      left: 12px;
+      top: 12px;
+      display: flex;
+      gap: 8px;
+      z-index: 2;
+    }
+    .pkb-badge,
+    .pkb-toolbar button {
+      border: 1px solid var(--border);
+      border-radius: 999px;
+      background: rgba(16, 23, 32, 0.8);
+      color: var(--text);
+      padding: 6px 10px;
+      font-size: 10px;
+    }
+    .pkb-toolbar button {
+      cursor: pointer;
+    }
+    .pkb-toolbar-group {
+      display: flex;
+      gap: 8px;
+    }
+    .pkb-panel {
+      border-left: 1px solid var(--border);
+      background: var(--ops-bg);
+      display: flex;
+      flex-direction: column;
+      min-height: 0;
+    }
+    .pkb-panel-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      padding: 12px;
+      border-bottom: 1px solid var(--border);
+    }
+    .pkb-panel-head h3 {
+      margin: 0;
+      font-size: 12px;
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      color: var(--muted);
+    }
+    .pkb-close {
+      border: 1px solid var(--border);
+      background: var(--surface-2);
+      color: var(--text);
+      border-radius: 8px;
+      font-size: 10px;
+      padding: 6px 10px;
+      cursor: pointer;
+    }
+    .pkb-panel-body {
+      padding: 12px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+      overflow-y: auto;
+      min-height: 0;
+    }
+    .pkb-stat-grid {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 8px;
+    }
+    .pkb-stat {
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      background: var(--surface);
+      padding: 8px;
+    }
+    .pkb-stat-key {
+      color: var(--muted);
+      font-size: 9px;
+      text-transform: uppercase;
+      margin-bottom: 4px;
+    }
+    .pkb-stat-val {
+      color: var(--text);
+      font-size: 12px;
+      font-weight: 600;
+      overflow-wrap: anywhere;
+    }
+    .pkb-card {
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      background: var(--surface);
+      padding: 10px;
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .pkb-card.is-clickable {
+      cursor: pointer;
+    }
+    .pkb-card.is-clickable:hover {
+      border-color: var(--accent);
+      background: var(--surface-2);
+    }
+    .pkb-card h4 {
+      margin: 0;
+      font-size: 11px;
+      color: var(--text);
+    }
+    .pkb-card p,
+    .pkb-card div {
+      margin: 0;
+      color: var(--muted);
+      font-size: 10px;
+      line-height: 1.45;
+      overflow-wrap: anywhere;
+    }
+    .pkb-content {
+      white-space: pre-wrap;
+      line-height: 1.65;
+      background: rgba(255, 255, 255, 0.02);
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 10px;
+      max-height: 38vh;
+      overflow-y: auto;
+    }
+    .pkb-doc-list {
+      display: flex;
+      flex-direction: column;
+      gap: 8px;
+    }
+    .pkb-empty {
+      color: var(--muted);
+      font-size: 10px;
+      line-height: 1.4;
+    }
     @media (max-width: 900px) {
       body { overflow: auto; }
       .app { width: 100%; min-height: auto; }
@@ -522,6 +720,17 @@
       }
       .layout {
         height: auto;
+      }
+      .pkb-overlay {
+        padding: 10px;
+      }
+      .pkb-shell {
+        grid-template-columns: 1fr;
+        grid-template-rows: minmax(280px, 44vh) minmax(0, 1fr);
+      }
+      .pkb-panel {
+        border-left: 0;
+        border-top: 1px solid var(--border);
       }
     }
   </style>
@@ -541,6 +750,7 @@
       <p class="brand-name">N.A.I.M.A.<br/>next AI modular agent</p>
       <img class="brand-logo" src="/ui/logo2.png" alt="Naima logo">
     </div>
+    <button id="openTopicsView" class="pkb-launch" type="button">Personal knowledge base</button>
     <div class="settings-panel section-panel">
       <div class="settings-head">
         <h3>Settings</h3>
@@ -583,7 +793,37 @@
     </div>
   </aside>
   </div>
+  <div id="pkbOverlay" class="pkb-overlay is-hidden">
+    <div class="pkb-shell">
+      <div class="pkb-stage">
+        <div class="pkb-toolbar">
+          <span id="pkbSummary" class="pkb-badge">Personal knowledge base</span>
+          <div class="pkb-toolbar-group">
+            <button id="pkbZoomIn" type="button">Zoom in</button>
+            <button id="pkbZoomOut" type="button">Zoom out</button>
+            <button id="pkbRefresh" type="button">Refresh</button>
+          </div>
+        </div>
+        <div id="pkbCanvas" class="pkb-canvas"></div>
+      </div>
+      <div class="pkb-panel">
+        <div class="pkb-panel-head">
+          <h3>Topics Space</h3>
+          <button id="pkbClose" class="pkb-close" type="button">Close</button>
+        </div>
+        <div class="pkb-panel-body">
+          <div id="pkbStats" class="pkb-stat-grid"></div>
+          <div id="pkbDetail" class="pkb-card">
+            <h4>Selection</h4>
+            <p>Pick a building or document node to inspect it.</p>
+          </div>
+          <div id="pkbDocuments" class="pkb-doc-list"></div>
+        </div>
+      </div>
+    </div>
+  </div>
 
+  <script src="https://unpkg.com/three@0.160.0/build/three.min.js"></script>
   <script>
     const tokenEl = document.getElementById("token");
     const saveTokenBtn = document.getElementById("saveToken");
@@ -593,6 +833,7 @@
     const settingsBodyEl = document.getElementById("settingsBody");
     const settingsCollapseEl = document.getElementById("settingsCollapse");
     const settingsPanelEl = document.querySelector(".settings-panel");
+    const pkbShellEl = document.querySelector(".pkb-shell");
     const messagesEl = document.getElementById("messages");
     const statusEl = document.getElementById("status");
     const opsListEl = document.getElementById("opsList");
@@ -601,10 +842,35 @@
     const toolsPanelEl = document.querySelector(".tools-panel");
     const toolsListEl = document.getElementById("toolsList");
     const toolsCollapseEl = document.getElementById("toolsCollapse");
+    const openTopicsViewEl = document.getElementById("openTopicsView");
     const memoryPanelEl = document.querySelector(".memory-panel");
     const memoryListEl = document.getElementById("memoryList");
     const memoryCollapseEl = document.getElementById("memoryCollapse");
+    const pkbOverlayEl = document.getElementById("pkbOverlay");
+    const pkbCanvasEl = document.getElementById("pkbCanvas");
+    const pkbCloseEl = document.getElementById("pkbClose");
+    const pkbRefreshEl = document.getElementById("pkbRefresh");
+    const pkbZoomInEl = document.getElementById("pkbZoomIn");
+    const pkbZoomOutEl = document.getElementById("pkbZoomOut");
+    const pkbSummaryEl = document.getElementById("pkbSummary");
+    const pkbStatsEl = document.getElementById("pkbStats");
+    const pkbDetailEl = document.getElementById("pkbDetail");
+    const pkbDocumentsEl = document.getElementById("pkbDocuments");
     let newConversationOnNextSend = true;
+    const pkbSceneState = {
+      renderer: null,
+      scene: null,
+      camera: null,
+      raycaster: null,
+      pointer: null,
+      resizeObserver: null,
+      animationFrame: 0,
+      drag: { active: false, x: 0, y: 0 },
+      orbit: { yaw: 0.75, pitch: 0.55, radius: 28 },
+      target: { currentX: 0, currentY: 2, currentZ: 0, goalX: 0, goalY: 2, goalZ: 0 },
+      meshes: [],
+      selected: null
+    };
 
     const tokenKey = "naima_api_token";
     const themeKey = "naima_theme";
@@ -653,6 +919,7 @@
       applyToolsCollapsed(next);
       localStorage.setItem(toolsCollapsedKey, next ? "1" : "0");
     });
+    openTopicsViewEl.addEventListener("click", () => openPKBView(true));
     opsCollapseEl.addEventListener("click", () => {
       const next = !opsListEl.classList.contains("is-hidden");
       applyOpsCollapsed(next);
@@ -667,6 +934,34 @@
       const next = !memoryListEl.classList.contains("is-hidden");
       applyMemoryCollapsed(next);
       localStorage.setItem(memoryCollapsedKey, next ? "1" : "0");
+    });
+    pkbCloseEl.addEventListener("click", closePKBView);
+    pkbRefreshEl.addEventListener("click", () => openPKBView(true));
+    pkbZoomInEl.addEventListener("click", () => {
+      pkbSceneState.orbit.radius = Math.max(10, pkbSceneState.orbit.radius - 2.5);
+    });
+    pkbZoomOutEl.addEventListener("click", () => {
+      pkbSceneState.orbit.radius = Math.min(54, pkbSceneState.orbit.radius + 2.5);
+    });
+    window.addEventListener("resize", () => {
+      if (!pkbOverlayEl.classList.contains("is-hidden")) {
+        resizePKBRenderer();
+      }
+    });
+    pkbShellEl.addEventListener("transitionrun", () => {
+      if (!pkbOverlayEl.classList.contains("is-hidden")) {
+        requestAnimationFrame(resizePKBRenderer);
+      }
+    });
+    pkbShellEl.addEventListener("transitionend", () => {
+      if (!pkbOverlayEl.classList.contains("is-hidden")) {
+        resizePKBRenderer();
+      }
+    });
+    document.addEventListener("keydown", (event) => {
+      if (event.key === "Escape" && !pkbOverlayEl.classList.contains("is-hidden")) {
+        closePKBView();
+      }
     });
 
     function addBubble(role, text) {
@@ -733,6 +1028,18 @@
         "Content-Type": "application/json",
         "Authorization": "Bearer " + tokenEl.value.trim()
       };
+    }
+
+    async function fetchPKBGraph() {
+      const resp = await fetch("/api/pkb/graph", {
+        method: "GET",
+        headers: { "Authorization": "Bearer " + tokenEl.value.trim() }
+      });
+      if (!resp.ok) {
+        const text = await resp.text();
+        throw new Error(text || ("HTTP " + resp.status));
+      }
+      return resp.json();
     }
 
     async function loadTools() {
@@ -889,8 +1196,453 @@
       }
     }
 
+    function renderPKBStats(topics) {
+      const topicCount = topics.length;
+      const docCount = topics.reduce((sum, topic) => sum + ((topic.documents_list || []).length), 0);
+      const biggest = topics.reduce((max, topic) => Math.max(max, (topic.documents_list || []).length), 0);
+      const stats = [
+        ["topics", topicCount],
+        ["documents", docCount],
+        ["largest topic", biggest],
+        ["selection", pkbSceneState.selected ? pkbSceneState.selected.kind : "none"]
+      ];
+      pkbStatsEl.innerHTML = "";
+      for (const [key, value] of stats) {
+        const card = document.createElement("div");
+        card.className = "pkb-stat";
+        card.innerHTML = '<div class="pkb-stat-key">' + escapeHtml(String(key)) + '</div><div class="pkb-stat-val">' + escapeHtml(String(value)) + "</div>";
+        pkbStatsEl.appendChild(card);
+      }
+    }
+
+    function renderPKBSelection(meta) {
+      pkbSceneState.selected = meta || null;
+      pkbShellEl.classList.toggle("has-selection", !!meta);
+      if (meta && meta.focus) {
+        setPKBTarget(meta.focus.x, meta.focus.y, meta.focus.z);
+      } else {
+        setPKBTarget(0, 2, 0);
+      }
+      requestAnimationFrame(resizePKBRenderer);
+      if (!meta) {
+        pkbDetailEl.innerHTML = "<h4>Selection</h4><p>Pick a building or document node to inspect it.</p>";
+        pkbDocumentsEl.innerHTML = "";
+        return;
+      }
+
+      if (meta.kind === "topic") {
+        const firstLink = (meta.topic.documents_list || []).find((doc) => doc.source_url);
+        pkbDetailEl.innerHTML =
+          "<h4>" + escapeHtml(meta.topic.title) + "</h4>" +
+          "<p>Topic building with " + escapeHtml(String((meta.topic.documents_list || []).length)) + " document(s).</p>" +
+          "<p>Created: " + escapeHtml(formatDate(meta.topic.created_at)) + "</p>" +
+          (firstLink ? '<p><a href="' + encodeURI(firstLink.source_url) + '" target="_blank" rel="noopener noreferrer">Open a source from this topic</a></p>' : "");
+        renderPKBDocuments(meta.topic.documents_list || []);
+      } else {
+        const doc = meta.document;
+        const topicDocs = Array.isArray(meta.topic.documents_list) ? meta.topic.documents_list : [];
+        const relatedDocs = topicDocs.filter((item) => Number(item.id) !== Number(doc.id));
+        pkbDetailEl.innerHTML =
+          "<h4>" + escapeHtml(doc.title || "(untitled document)") + "</h4>" +
+          "<p>Topic: " + escapeHtml(doc.topic_title || meta.topic.title) + "</p>" +
+          "<p>Kind: " + escapeHtml(doc.kind || "note") + "</p>" +
+          (doc.source_url ? '<p><a href="' + encodeURI(doc.source_url) + '" target="_blank" rel="noopener noreferrer">Open source</a></p>' : "") +
+          '<div class="pkb-content">' + formatReadableContent(doc.content || "") + "</div>";
+        renderPKBDocuments(relatedDocs);
+      }
+      renderPKBStats(pkbSceneState.currentTopics || []);
+    }
+
+    function renderPKBDocuments(documents) {
+      pkbDocumentsEl.innerHTML = "";
+      if (!documents.length) {
+        pkbDocumentsEl.innerHTML = '<div class="pkb-empty">No documents in this selection.</div>';
+        return;
+      }
+      for (const doc of documents) {
+        const card = document.createElement("div");
+        card.className = "pkb-card is-clickable";
+        card.innerHTML =
+          "<h4>" + escapeHtml(doc.title || "(untitled document)") + "</h4>" +
+          "<p>" + escapeHtml(doc.kind || "note") + "</p>" +
+          (doc.source_url ? '<p><a href="' + encodeURI(doc.source_url) + '" target="_blank" rel="noopener noreferrer">' + escapeHtml(doc.source_url) + "</a></p>" : "") +
+          "<div>" + escapeHtml(trimText(doc.content || "", 260)) + "</div>";
+        card.addEventListener("click", (event) => {
+          if (event.target && event.target.closest("a")) {
+            return;
+          }
+          const topic = (pkbSceneState.currentTopics || []).find((item) => Number(item.id) === Number(doc.topic_id)) || {
+            title: doc.topic_title || "",
+            documents_list: documents
+          };
+          renderPKBSelection({ kind: "document", topic, document: doc });
+        });
+        pkbDocumentsEl.appendChild(card);
+      }
+    }
+
+    function trimText(text, max) {
+      const value = String(text || "").trim();
+      if (value.length <= max) {
+        return value;
+      }
+      return value.slice(0, max - 1).trimEnd() + "…";
+    }
+
+    function formatDate(value) {
+      if (!value) {
+        return "n/a";
+      }
+      const date = new Date(value);
+      if (Number.isNaN(date.getTime())) {
+        return String(value);
+      }
+      return date.toLocaleString();
+    }
+
+    function formatReadableContent(text) {
+      return escapeHtml(String(text || "").trim())
+        .replace(/\n{3,}/g, "\n\n")
+        .replace(/\n/g, "<br>");
+    }
+
+    function colorHex(name, fallback) {
+      const raw = getComputedStyle(document.body).getPropertyValue(name).trim() || fallback;
+      return parseInt(raw.replace("#", ""), 16);
+    }
+
+    function ensurePKBScene() {
+      if (pkbSceneState.renderer || !window.THREE) {
+        return;
+      }
+      const renderer = new THREE.WebGLRenderer({ antialias: true, alpha: true });
+      renderer.setPixelRatio(Math.min(window.devicePixelRatio || 1, 2));
+      pkbCanvasEl.innerHTML = "";
+      pkbCanvasEl.appendChild(renderer.domElement);
+
+      const scene = new THREE.Scene();
+      const camera = new THREE.PerspectiveCamera(55, 1, 0.1, 200);
+      const raycaster = new THREE.Raycaster();
+      const pointer = new THREE.Vector2();
+
+      const ambient = new THREE.AmbientLight(0xffffff, 1.15);
+      scene.add(ambient);
+      const key = new THREE.DirectionalLight(0xffffff, 1.8);
+      key.position.set(12, 20, 10);
+      scene.add(key);
+      const fill = new THREE.PointLight(colorHex("--accent", "#3DF2E0"), 14, 120);
+      fill.position.set(0, 18, 0);
+      scene.add(fill);
+
+      const ground = new THREE.Mesh(
+        new THREE.CylinderGeometry(18, 22, 0.8, 48),
+        new THREE.MeshStandardMaterial({
+          color: colorHex("--surface", "#0b1118"),
+          metalness: 0.4,
+          roughness: 0.7
+        })
+      );
+      ground.position.y = -0.6;
+      scene.add(ground);
+
+      const ring = new THREE.Mesh(
+        new THREE.TorusGeometry(14, 0.08, 12, 80),
+        new THREE.MeshStandardMaterial({ color: colorHex("--border", "#1f3f4b") })
+      );
+      ring.rotation.x = Math.PI / 2;
+      scene.add(ring);
+
+      pkbSceneState.renderer = renderer;
+      pkbSceneState.scene = scene;
+      pkbSceneState.camera = camera;
+      pkbSceneState.raycaster = raycaster;
+      pkbSceneState.pointer = pointer;
+
+      renderer.domElement.addEventListener("pointerdown", onPKBPointerDown);
+      renderer.domElement.addEventListener("pointermove", onPKBPointerMove);
+      renderer.domElement.addEventListener("pointerup", onPKBPointerUp);
+      renderer.domElement.addEventListener("pointerleave", onPKBPointerUp);
+      renderer.domElement.addEventListener("wheel", onPKBWheel, { passive: false });
+      renderer.domElement.addEventListener("click", onPKBClick);
+      if (typeof ResizeObserver !== "undefined") {
+        pkbSceneState.resizeObserver = new ResizeObserver(() => {
+          if (!pkbOverlayEl.classList.contains("is-hidden")) {
+            resizePKBRenderer();
+          }
+        });
+        pkbSceneState.resizeObserver.observe(pkbCanvasEl);
+      }
+
+      resizePKBRenderer();
+      tickPKBScene();
+    }
+
+    function resizePKBRenderer() {
+      if (!pkbSceneState.renderer || !pkbCanvasEl.clientWidth || !pkbCanvasEl.clientHeight) {
+        return;
+      }
+      pkbSceneState.renderer.setSize(pkbCanvasEl.clientWidth, pkbCanvasEl.clientHeight);
+      pkbSceneState.camera.aspect = pkbCanvasEl.clientWidth / pkbCanvasEl.clientHeight;
+      pkbSceneState.camera.updateProjectionMatrix();
+      updatePKBCamera();
+    }
+
+    function updatePKBCamera() {
+      if (!pkbSceneState.camera) {
+        return;
+      }
+      const target = pkbSceneState.target;
+      target.currentX += (target.goalX - target.currentX) * 0.12;
+      target.currentY += (target.goalY - target.currentY) * 0.12;
+      target.currentZ += (target.goalZ - target.currentZ) * 0.12;
+      const { yaw, pitch, radius } = pkbSceneState.orbit;
+      const x = target.currentX + Math.cos(yaw) * Math.cos(pitch) * radius;
+      const y = target.currentY + Math.sin(pitch) * radius * 0.9 + 5;
+      const z = target.currentZ + Math.sin(yaw) * Math.cos(pitch) * radius;
+      pkbSceneState.camera.position.set(x, y, z);
+      pkbSceneState.camera.lookAt(target.currentX, target.currentY, target.currentZ);
+    }
+
+    function setPKBTarget(x, y, z) {
+      pkbSceneState.target.goalX = Number(x) || 0;
+      pkbSceneState.target.goalY = Number(y) || 2;
+      pkbSceneState.target.goalZ = Number(z) || 0;
+    }
+
+    function clearPKBMeshes() {
+      if (!pkbSceneState.scene) {
+        return;
+      }
+      for (const mesh of pkbSceneState.meshes) {
+        pkbSceneState.scene.remove(mesh);
+        if (mesh.geometry) {
+          mesh.geometry.dispose();
+        }
+        if (mesh.material && mesh.material.map && typeof mesh.material.map.dispose === "function") {
+          mesh.material.map.dispose();
+        }
+        if (mesh.material && typeof mesh.material.dispose === "function") {
+          mesh.material.dispose();
+        }
+      }
+      pkbSceneState.meshes = [];
+    }
+
+    function createTopicLabelSprite(text, scaleFactor) {
+      const canvas = document.createElement("canvas");
+      const ctx = canvas.getContext("2d");
+      const raw = String(text || "").trim() || "Untitled";
+      const label = raw.length > 20 ? raw.slice(0, 19).trimEnd() + "…" : raw;
+      const fontSize = 18;
+      ctx.font = "600 " + fontSize + "px 'Kode Mono', monospace";
+      const textWidth = Math.ceil(ctx.measureText(label).width);
+      canvas.width = Math.max(72, textWidth + 18);
+      canvas.height = 32;
+
+      ctx.font = "600 " + fontSize + "px 'Kode Mono', monospace";
+      ctx.textBaseline = "middle";
+      ctx.textAlign = "center";
+      ctx.clearRect(0, 0, canvas.width, canvas.height);
+      ctx.fillStyle = "rgba(11, 15, 20, 0.78)";
+      ctx.strokeStyle = "rgba(61, 242, 224, 0.55)";
+      ctx.lineWidth = 1.5;
+      const radius = 8;
+      ctx.beginPath();
+      ctx.moveTo(radius, 0);
+      ctx.lineTo(canvas.width - radius, 0);
+      ctx.quadraticCurveTo(canvas.width, 0, canvas.width, radius);
+      ctx.lineTo(canvas.width, canvas.height - radius);
+      ctx.quadraticCurveTo(canvas.width, canvas.height, canvas.width - radius, canvas.height);
+      ctx.lineTo(radius, canvas.height);
+      ctx.quadraticCurveTo(0, canvas.height, 0, canvas.height - radius);
+      ctx.lineTo(0, radius);
+      ctx.quadraticCurveTo(0, 0, radius, 0);
+      ctx.closePath();
+      ctx.fill();
+      ctx.stroke();
+      ctx.fillStyle = "#E8FFFC";
+      ctx.fillText(label, canvas.width / 2, canvas.height / 2);
+
+      const texture = new THREE.CanvasTexture(canvas);
+      texture.needsUpdate = true;
+      const material = new THREE.SpriteMaterial({
+        map: texture,
+        transparent: true,
+        depthWrite: false,
+        depthTest: false
+      });
+      const sprite = new THREE.Sprite(material);
+      const aspect = canvas.width / canvas.height;
+      const size = 1.35 * (scaleFactor || 1);
+      sprite.scale.set(size * aspect, size, 1);
+      sprite.renderOrder = 10;
+      return sprite;
+    }
+
+    function buildPKBScene(topics) {
+      ensurePKBScene();
+      clearPKBMeshes();
+      pkbSceneState.currentTopics = topics;
+      renderPKBStats(topics);
+      renderPKBSelection(null);
+
+      const topicCount = topics.length;
+      pkbSummaryEl.textContent = topicCount + " topic(s) in personal knowledge base";
+      if (!topicCount) {
+        return;
+      }
+
+      const cols = Math.max(1, Math.ceil(Math.sqrt(topicCount)));
+      const spacing = 7.2;
+      const startX = -((cols - 1) * spacing) / 2;
+      const topicColor = colorHex("--accent", "#3DF2E0");
+      const docColor = colorHex("--muted", "#7adbd2");
+      const borderColor = colorHex("--border", "#1f3f4b");
+      const labelScale = Math.max(0.42, Math.min(0.72, 6 / Math.max(topicCount, 6)));
+
+      topics.forEach((topic, index) => {
+        const row = Math.floor(index / cols);
+        const col = index % cols;
+        const x = startX + col * spacing;
+        const z = (row - Math.floor((topicCount - 1) / cols / 2)) * spacing;
+        const docs = Array.isArray(topic.documents_list) ? topic.documents_list : [];
+        const height = 2 + Math.max(0, docs.length) * 0.65;
+        const building = new THREE.Mesh(
+          new THREE.BoxGeometry(2.4, height, 2.4),
+          new THREE.MeshStandardMaterial({
+            color: topicColor,
+            emissive: borderColor,
+            emissiveIntensity: 0.12,
+            metalness: 0.35,
+            roughness: 0.4
+          })
+        );
+        building.position.set(x, height / 2, z);
+        building.userData = { kind: "topic", topic, focus: { x, y: Math.max(2, height / 2), z } };
+        pkbSceneState.scene.add(building);
+        pkbSceneState.meshes.push(building);
+
+        const label = createTopicLabelSprite(topic.title, labelScale);
+        label.position.set(x, height + 0.7 + labelScale, z);
+        pkbSceneState.scene.add(label);
+        pkbSceneState.meshes.push(label);
+
+        docs.forEach((doc, docIndex) => {
+          const angle = (Math.PI * 2 * docIndex) / Math.max(docs.length, 1);
+          const radius = 2.8 + (docIndex % 3) * 0.5;
+          const docHeight = 0.7 + Math.min(1.8, (doc.content || "").length / 900);
+          const node = new THREE.Mesh(
+            new THREE.BoxGeometry(0.8, docHeight, 0.8),
+            new THREE.MeshStandardMaterial({
+              color: docColor,
+              emissive: topicColor,
+              emissiveIntensity: 0.08,
+              metalness: 0.15,
+              roughness: 0.55
+            })
+          );
+          node.position.set(
+            x + Math.cos(angle) * radius,
+            docHeight / 2,
+            z + Math.sin(angle) * radius
+          );
+          node.userData = {
+            kind: "document",
+            topic,
+            document: doc,
+            focus: { x: node.position.x, y: Math.max(1.6, node.position.y), z: node.position.z }
+          };
+          pkbSceneState.scene.add(node);
+          pkbSceneState.meshes.push(node);
+        });
+      });
+    }
+
+    function tickPKBScene() {
+      if (!pkbSceneState.renderer) {
+        return;
+      }
+      updatePKBCamera();
+      pkbSceneState.renderer.render(pkbSceneState.scene, pkbSceneState.camera);
+      pkbSceneState.animationFrame = requestAnimationFrame(tickPKBScene);
+    }
+
+    function onPKBPointerDown(event) {
+      pkbSceneState.drag.active = true;
+      pkbSceneState.drag.x = event.clientX;
+      pkbSceneState.drag.y = event.clientY;
+      pkbCanvasEl.classList.add("dragging");
+    }
+
+    function onPKBPointerMove(event) {
+      if (!pkbSceneState.drag.active) {
+        return;
+      }
+      const dx = event.clientX - pkbSceneState.drag.x;
+      const dy = event.clientY - pkbSceneState.drag.y;
+      pkbSceneState.drag.x = event.clientX;
+      pkbSceneState.drag.y = event.clientY;
+      pkbSceneState.orbit.yaw -= dx * 0.008;
+      pkbSceneState.orbit.pitch = Math.max(0.15, Math.min(1.2, pkbSceneState.orbit.pitch - dy * 0.008));
+    }
+
+    function onPKBPointerUp() {
+      pkbSceneState.drag.active = false;
+      pkbCanvasEl.classList.remove("dragging");
+    }
+
+    function onPKBWheel(event) {
+      event.preventDefault();
+      pkbSceneState.orbit.radius = Math.max(10, Math.min(54, pkbSceneState.orbit.radius + event.deltaY * 0.015));
+    }
+
+    function onPKBClick(event) {
+      if (!pkbSceneState.renderer || !pkbSceneState.camera) {
+        return;
+      }
+      const rect = pkbSceneState.renderer.domElement.getBoundingClientRect();
+      pkbSceneState.pointer.x = ((event.clientX - rect.left) / rect.width) * 2 - 1;
+      pkbSceneState.pointer.y = -((event.clientY - rect.top) / rect.height) * 2 + 1;
+      pkbSceneState.raycaster.setFromCamera(pkbSceneState.pointer, pkbSceneState.camera);
+      const hits = pkbSceneState.raycaster.intersectObjects(pkbSceneState.meshes.filter((mesh) => mesh.userData && mesh.userData.kind), false);
+      if (!hits.length) {
+        renderPKBSelection(null);
+        return;
+      }
+      renderPKBSelection(hits[0].object.userData);
+    }
+
+    async function openPKBView(forceRefresh) {
+      if (!tokenEl.value.trim()) {
+        setStatus("Set API token first.");
+        return;
+      }
+      try {
+        if (forceRefresh) {
+          addOp("refreshing topics view");
+        }
+        const payload = await fetchPKBGraph();
+        const topics = Array.isArray(payload.topics) ? payload.topics : [];
+        pkbOverlayEl.classList.remove("is-hidden");
+        pkbShellEl.classList.remove("has-selection");
+        buildPKBScene(topics);
+        resizePKBRenderer();
+        addOp("topics view opened");
+        setStatus("Topics space ready.");
+      } catch (err) {
+        setStatus("Topics view failed: " + (err?.message || String(err)));
+      }
+    }
+
+    function closePKBView() {
+      pkbOverlayEl.classList.add("is-hidden");
+      pkbShellEl.classList.remove("has-selection");
+      addOp("topics view closed");
+    }
+
     function applyToolsCollapsed(collapsed) {
       toolsListEl.classList.toggle("is-hidden", !!collapsed);
+      openTopicsViewEl.classList.toggle("is-hidden", !!collapsed);
       toolsPanelEl.classList.toggle("collapsed", !!collapsed);
       toolsCollapseEl.textContent = collapsed ? "Show" : "Hide";
     }

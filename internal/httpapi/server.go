@@ -16,6 +16,7 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	"naima/internal/agent"
+	"naima/internal/pkb"
 )
 
 const defaultAddr = ":8080"
@@ -46,11 +47,16 @@ type toolUpdateRequest struct {
 	Enabled bool   `json:"enabled"`
 }
 
+type pkbReader interface {
+	ListTopics(ctx context.Context) ([]pkb.Topic, error)
+	ListDocuments(ctx context.Context, topicID int64) ([]pkb.Document, error)
+}
+
 func IsEnabled() bool {
 	return strings.TrimSpace(os.Getenv("NAIMA_API_TOKEN")) != "" || strings.TrimSpace(os.Getenv("NAIMA_API_ADDR")) != ""
 }
 
-func RunServer(ctx context.Context, agentInstance *agent.Agent) error {
+func RunServer(ctx context.Context, agentInstance *agent.Agent, pkbStore pkbReader) error {
 	cfg, err := loadConfig()
 	if err != nil {
 		return err
@@ -239,6 +245,48 @@ func RunServer(ctx context.Context, agentInstance *agent.Agent) error {
 			return
 		}
 		writeJSON(w, http.StatusOK, map[string]any{"status": status})
+	})
+	mux.HandleFunc("/api/pkb/graph", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+			return
+		}
+		if !authorizeRequest(r, cfg.Token) {
+			writeError(w, http.StatusUnauthorized, "unauthorized")
+			return
+		}
+		if pkbStore == nil {
+			writeError(w, http.StatusServiceUnavailable, "personal knowledge base is not configured")
+			return
+		}
+
+		topics, err := pkbStore.ListTopics(r.Context())
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+
+		type topicWithDocuments struct {
+			pkb.Topic
+			DocumentsList []pkb.Document `json:"documents_list"`
+		}
+		out := make([]topicWithDocuments, 0, len(topics))
+		for _, topic := range topics {
+			docs, err := pkbStore.ListDocuments(r.Context(), topic.ID)
+			if err != nil {
+				writeError(w, http.StatusInternalServerError, err.Error())
+				return
+			}
+			out = append(out, topicWithDocuments{
+				Topic:         topic,
+				DocumentsList: docs,
+			})
+		}
+
+		writeJSON(w, http.StatusOK, map[string]any{
+			"topics": out,
+			"count":  len(out),
+		})
 	})
 
 	srv := &http.Server{
