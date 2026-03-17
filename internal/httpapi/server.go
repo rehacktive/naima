@@ -23,6 +23,7 @@ import (
 )
 
 const defaultAddr = ":8080"
+const maxPKBUploadBytes = 25 << 20
 
 const (
 	authHeader      = "Authorization"
@@ -443,6 +444,7 @@ func RunServer(ctx context.Context, agentInstance *agent.Agent, pkbStore pkbRead
 			writeError(w, http.StatusServiceUnavailable, "tika is not configured for file ingestion")
 			return
 		}
+		r.Body = http.MaxBytesReader(w, r.Body, maxPKBUploadBytes)
 		if err := r.ParseMultipartForm(32 << 20); err != nil {
 			writeError(w, http.StatusBadRequest, "invalid multipart form")
 			return
@@ -465,7 +467,7 @@ func RunServer(ctx context.Context, agentInstance *agent.Agent, pkbStore pkbRead
 			writeError(w, http.StatusBadRequest, "file name is required")
 			return
 		}
-		data, err := io.ReadAll(io.LimitReader(file, 25<<20))
+		data, err := io.ReadAll(io.LimitReader(file, maxPKBUploadBytes))
 		if err != nil {
 			writeError(w, http.StatusBadRequest, "read file failed")
 			return
