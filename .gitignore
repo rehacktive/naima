@@ -1,3 +1,4 @@
+data/*
 .env
 .naima_session.json
 report.md
