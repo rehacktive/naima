@@ -26,7 +26,7 @@ This starts:
 - `pgvector` on `localhost:5432`
 - `redis` on `localhost:6379`
 - `searxng` on `localhost:8081`
-- `docling` on `localhost:5001`
+- `tika` on `localhost:9998`
 
 In this mode, `naima` and `caddy` are not started.
 
@@ -215,13 +215,13 @@ Behavior:
 - Stores data in PostgreSQL (`pkb_topics`, `pkb_documents`)
 - Each document belongs to one topic
 - `add_content` supports:
-  - URL ingestion (default `hybrid` mode combines direct fetch, Docling, and Playwright article extraction into cleaned markdown)
+  - URL ingestion (default `hybrid` mode combines direct fetch, Tika, and Playwright article extraction into cleaned markdown)
   - manual notes (stores provided note/content)
 - URL-ingested documents persist `ingest_method` so you can see whether content
-  came from `hybrid_markdown`, `docling_markdown`, `playwright_markdown`,
+  came from `hybrid_markdown`, `tika_markdown`, `playwright_markdown`,
   `fallback_text`, `direct_text`, or `manual_note`
 - The web UI `Ingest` dialog can upload local files (PDF, DOCX, TXT, Markdown, HTML).
-  Uploaded files are stored locally and processed through Docling only, then
+  Uploaded files are stored locally and processed through Tika only, then
   the extracted content is saved as a PKB document connected to the selected topic.
 - `temporal_search` supports:
   - presets: `today`, `week`, `month`
@@ -377,19 +377,19 @@ Optional environment variables:
   ivfflat index creation (default `0`).
 - `NAIMA_SEARX_URL`: local Searx base URL used by the `web_search` tool
   (default `http://localhost:8081`).
-- `NAIMA_DOCLING_URL`: optional Docling Serve base URL used by PKB URL
+- `NAIMA_TIKA_URL`: optional Tika Serve base URL used by PKB URL
   ingestion to extract markdown from webpages (for Docker Compose:
-  `http://docling:5001`).
-- `NAIMA_DOCLING_ALLOW_FALLBACK`: when `true`, PKB URL ingestion falls back to
-  plain text extraction if Docling fails; when `false`, ingestion fails
+  `http://tika:9998`).
+- `NAIMA_TIKA_ALLOW_FALLBACK`: when `true`, PKB URL ingestion falls back to
+  plain text extraction if Tika fails; when `false`, ingestion fails
   immediately instead (default `true`).
-- `NAIMA_DOCLING_FILE_TIMEOUT_MS`: timeout in milliseconds for Docling file
+- `NAIMA_TIKA_FILE_TIMEOUT_MS`: timeout in milliseconds for Tika file
   ingestion via the web UI upload flow (default `180000`).
 - `NAIMA_PKB_INGEST_MODE`: PKB URL ingestion strategy. Supported values:
-  `hybrid` (default), `docling`, `playwright`, `fetch`.
+  `hybrid` (default), `tika`, `playwright`, `fetch`.
   `hybrid` combines all available extractors and stores cleaned markdown.
 - `NAIMA_PKB_UPLOAD_DIR`: local directory where uploaded PKB files are stored
-  before/after Docling processing (default `./data/pkb_uploads`).
+  before/after Tika processing (default `./data/pkb_uploads`).
 - `NAIMA_PLAYWRIGHT_HEADLESS`: run Playwright in headless mode (`true`/`false`,
   default `true`).
 - `NAIMA_PLAYWRIGHT_TIMEOUT_MS`: Playwright navigation/action timeout in

@@ -389,8 +389,8 @@ func RunServer(ctx context.Context, agentInstance *agent.Agent, pkbStore pkbRead
 			writeError(w, http.StatusServiceUnavailable, "personal knowledge base is not configured")
 			return
 		}
-		if strings.TrimSpace(ingestCfg.DoclingURL) == "" {
-			writeError(w, http.StatusServiceUnavailable, "docling is not configured for file ingestion")
+		if strings.TrimSpace(ingestCfg.TikaURL) == "" {
+			writeError(w, http.StatusServiceUnavailable, "tika is not configured for file ingestion")
 			return
 		}
 		if err := r.ParseMultipartForm(32 << 20); err != nil {
@@ -447,7 +447,7 @@ func RunServer(ctx context.Context, agentInstance *agent.Agent, pkbStore pkbRead
 			topicID = created.ID
 		}
 
-		ingested, err := pkb.IngestFileContent(r.Context(), &http.Client{Timeout: time.Duration(envInt("NAIMA_DOCLING_FILE_TIMEOUT_MS", 180000)) * time.Millisecond}, ingestCfg.DoclingURL, filename, data)
+		ingested, err := pkb.IngestFileContent(r.Context(), &http.Client{Timeout: time.Duration(envInt("NAIMA_TIKA_FILE_TIMEOUT_MS", 180000)) * time.Millisecond}, ingestCfg.TikaURL, filename, data)
 		if err != nil {
 			writeError(w, http.StatusBadRequest, err.Error())
 			return
@@ -532,8 +532,8 @@ func loadConfig() (config, error) {
 	}, nil
 }
 
-func doclingAllowFallback() bool {
-	raw := strings.ToLower(strings.TrimSpace(os.Getenv("NAIMA_DOCLING_ALLOW_FALLBACK")))
+func tikaAllowFallback() bool {
+	raw := strings.ToLower(strings.TrimSpace(os.Getenv("NAIMA_TIKA_ALLOW_FALLBACK")))
 	switch raw {
 	case "", "1", "true", "yes", "on":
 		return true
@@ -547,8 +547,8 @@ func doclingAllowFallback() bool {
 func pkbIngestConfigFromEnv() pkb.IngestConfig {
 	return pkb.IngestConfig{
 		Mode:                strings.TrimSpace(os.Getenv("NAIMA_PKB_INGEST_MODE")),
-		DoclingURL:          strings.TrimSpace(os.Getenv("NAIMA_DOCLING_URL")),
-		AllowFallback:       doclingAllowFallback(),
+		TikaURL:             strings.TrimSpace(os.Getenv("NAIMA_TIKA_URL")),
+		AllowFallback:       tikaAllowFallback(),
 		PlaywrightHeadless:  envBool("NAIMA_PLAYWRIGHT_HEADLESS", true),
 		PlaywrightTimeoutMS: envInt("NAIMA_PLAYWRIGHT_TIMEOUT_MS", 30000),
 	}

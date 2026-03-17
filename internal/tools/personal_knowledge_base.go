@@ -150,7 +150,7 @@ func (t *PersonalKnowledgeBaseTool) GetFunction() func(params string) string {
 					return errorJSON(err.Error())
 				}
 				if ingested.FallbackNote != "" {
-					log.Warnf("[pkb] docling failed for tool url=%s fallback=%s", trimmedURL, ingested.FallbackNote)
+					log.Warnf("[pkb] tika failed for tool url=%s fallback=%s", trimmedURL, ingested.FallbackNote)
 				}
 				if title == "" {
 					title = ingested.Title

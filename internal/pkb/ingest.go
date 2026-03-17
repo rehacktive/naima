@@ -3,14 +3,14 @@ package pkb
 import (
 	"bytes"
 	"context"
-	"encoding/json"
 	"fmt"
 	"io"
-	"mime/multipart"
+	"mime"
 	"net"
 	"net/http"
 	"net/netip"
 	"net/url"
+	"path/filepath"
 	"regexp"
 	"sort"
 	"strings"
@@ -42,30 +42,10 @@ var playwrightInstallErr error
 
 type IngestConfig struct {
 	Mode                string
-	DoclingURL          string
+	TikaURL             string
 	AllowFallback       bool
 	PlaywrightHeadless  bool
 	PlaywrightTimeoutMS int
-}
-
-type doclingConvertRequest struct {
-	Sources []map[string]any `json:"sources"`
-	Options map[string]any   `json:"options,omitempty"`
-}
-
-type doclingConvertResponse struct {
-	Document  *doclingDocument   `json:"document,omitempty"`
-	Documents []doclingResultDoc `json:"documents,omitempty"`
-}
-
-type doclingResultDoc struct {
-	Document *doclingDocument `json:"document,omitempty"`
-}
-
-type doclingDocument struct {
-	Filename    string `json:"filename,omitempty"`
-	MDContent   string `json:"md_content,omitempty"`
-	TextContent string `json:"text_content,omitempty"`
 }
 
 type IngestResult struct {
@@ -102,10 +82,10 @@ func IngestURLContent(ctx context.Context, client *http.Client, cfg IngestConfig
 			return IngestResult{}, err
 		}
 		return IngestResult{Title: title, Content: content, Method: "direct_text"}, nil
-	case "docling":
-		title, content, err := FetchURLContentViaDocling(ctx, client, cfg.DoclingURL, rawURL)
+	case "tika":
+		title, content, err := FetchURLContentViaTika(ctx, client, cfg.TikaURL, rawURL)
 		if err == nil {
-			return IngestResult{Title: title, Content: content, Method: "docling_markdown"}, nil
+			return IngestResult{Title: title, Content: content, Method: "tika_markdown"}, nil
 		}
 		if !cfg.AllowFallback {
 			return IngestResult{}, err
@@ -145,11 +125,11 @@ func ingestHybrid(ctx context.Context, client *http.Client, cfg IngestConfig, ra
 		warnings = append(warnings, "direct_text: "+err.Error())
 	}
 
-	if strings.TrimSpace(cfg.DoclingURL) != "" {
-		if title, content, err := FetchURLContentViaDocling(ctx, client, cfg.DoclingURL, rawURL); err == nil {
-			variants = append(variants, extractVariant{Method: "docling_markdown", Title: title, Content: content})
+	if strings.TrimSpace(cfg.TikaURL) != "" {
+		if title, content, err := FetchURLContentViaTika(ctx, client, cfg.TikaURL, rawURL); err == nil {
+			variants = append(variants, extractVariant{Method: "tika_markdown", Title: title, Content: content})
 		} else {
-			warnings = append(warnings, "docling_markdown: "+err.Error())
+			warnings = append(warnings, "tika_markdown: "+err.Error())
 		}
 	}
 
@@ -177,7 +157,7 @@ func ingestHybrid(ctx context.Context, client *http.Client, cfg IngestConfig, ra
 }
 
 func mergeVariantsToMarkdown(rawURL string, variants []extractVariant) (string, string) {
-	preferred := []string{"playwright_markdown", "docling_markdown", "direct_text"}
+	preferred := []string{"playwright_markdown", "tika_markdown", "direct_text"}
 	best := variants[0]
 	bestRank := len(preferred) + 1
 	for _, v := range variants {
@@ -227,13 +207,13 @@ func collectMergedBlocks(variants []extractVariant) []mergedBlock {
 			if !ok {
 				cp := block
 				cp.Count = 1
-				cp.BestRank = methodRank(variant.Method, []string{"playwright_markdown", "docling_markdown", "direct_text"})
+				cp.BestRank = methodRank(variant.Method, []string{"playwright_markdown", "tika_markdown", "direct_text"})
 				cp.BestIndex = idx
 				merged[block.Key] = &cp
 				continue
 			}
 			cur.Count++
-			rank := methodRank(variant.Method, []string{"playwright_markdown", "docling_markdown", "direct_text"})
+			rank := methodRank(variant.Method, []string{"playwright_markdown", "tika_markdown", "direct_text"})
 			if rank < cur.BestRank || (rank == cur.BestRank && idx < cur.BestIndex) {
 				cur.Text = block.Text
 				cur.BestRank = rank
@@ -364,7 +344,7 @@ func chooseBestTitle(rawURL string, variants []extractVariant) string {
 		if title == "" || title == rawURL || looksLikeBoilerplate(title) {
 			continue
 		}
-		rank := methodRank(v.Method, []string{"playwright_markdown", "docling_markdown", "direct_text"})
+		rank := methodRank(v.Method, []string{"playwright_markdown", "tika_markdown", "direct_text"})
 		if rank < bestRank || (rank == bestRank && len(title) < len(best)) {
 			best = title
 			bestRank = rank
@@ -468,56 +448,12 @@ func looksLikeBoilerplate(text string) bool {
 }
 
 func FetchURLContent(ctx context.Context, client *http.Client, rawURL string) (string, string, error) {
-	u, err := url.Parse(strings.TrimSpace(rawURL))
+	title, contentType, body, err := fetchURLBytes(ctx, client, rawURL)
 	if err != nil {
-		return "", "", fmt.Errorf("invalid url: %w", err)
-	}
-	if err := validateFetchURL(ctx, u); err != nil {
 		return "", "", err
 	}
 
-	if u.Scheme != "http" && u.Scheme != "https" {
-		return "", "", fmt.Errorf("unsupported url scheme: %s", u.Scheme)
-	}
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
-	if err != nil {
-		return "", "", fmt.Errorf("build url request failed: %w", err)
-	}
-	req.Header.Set("User-Agent", "naima-pkb/1.0")
-
-	httpClient := http.DefaultClient
-	if client != nil {
-		httpClient = client
-	}
-	cloned := *httpClient
-	cloned.CheckRedirect = func(redirectReq *http.Request, _ []*http.Request) error {
-		if err := validateFetchURL(redirectReq.Context(), redirectReq.URL); err != nil {
-			return err
-		}
-		return nil
-	}
-
-	resp, err := cloned.Do(req)
-	if err != nil {
-		return "", "", fmt.Errorf("fetch url failed: %w", err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return "", "", fmt.Errorf("fetch url returned status %d", resp.StatusCode)
-	}
-
-	body, err := io.ReadAll(io.LimitReader(resp.Body, MaxFetchedContentSize+1))
-	if err != nil {
-		return "", "", fmt.Errorf("read url content failed: %w", err)
-	}
-	if len(body) > MaxFetchedContentSize {
-		return "", "", fmt.Errorf("url content too large (max %d bytes)", MaxFetchedContentSize)
-	}
-
 	raw := string(body)
-	title := extractHTMLTitle(raw)
-	contentType := strings.ToLower(strings.TrimSpace(resp.Header.Get("Content-Type")))
 	content := raw
 	if strings.Contains(contentType, "text/html") || strings.Contains(content, "<html") {
 		content = htmlToText(content)
@@ -530,31 +466,76 @@ func FetchURLContent(ctx context.Context, client *http.Client, rawURL string) (s
 	return title, content, nil
 }
 
-func FetchURLContentViaDocling(ctx context.Context, client *http.Client, doclingURL string, rawURL string) (string, string, error) {
-	rawURL = strings.TrimSpace(rawURL)
-	if rawURL == "" {
-		return "", "", fmt.Errorf("url is required")
+func fetchURLBytes(ctx context.Context, client *http.Client, rawURL string) (string, string, []byte, error) {
+	u, err := url.Parse(strings.TrimSpace(rawURL))
+	if err != nil {
+		return "", "", nil, fmt.Errorf("invalid url: %w", err)
 	}
-	base := strings.TrimRight(strings.TrimSpace(doclingURL), "/")
+	if err := validateFetchURL(ctx, u); err != nil {
+		return "", "", nil, err
+	}
+	if u.Scheme != "http" && u.Scheme != "https" {
+		return "", "", nil, fmt.Errorf("unsupported url scheme: %s", u.Scheme)
+	}
+
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
+	if err != nil {
+		return "", "", nil, fmt.Errorf("build url request failed: %w", err)
+	}
+	req.Header.Set("User-Agent", "naima-pkb/1.0")
+
+	httpClient := http.DefaultClient
+	if client != nil {
+		httpClient = client
+	}
+	cloned := *httpClient
+	cloned.CheckRedirect = func(redirectReq *http.Request, _ []*http.Request) error {
+		return validateFetchURL(redirectReq.Context(), redirectReq.URL)
+	}
+
+	resp, err := cloned.Do(req)
+	if err != nil {
+		return "", "", nil, fmt.Errorf("fetch url failed: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
+		return "", "", nil, fmt.Errorf("fetch url returned status %d", resp.StatusCode)
+	}
+
+	body, err := io.ReadAll(io.LimitReader(resp.Body, MaxFetchedContentSize+1))
+	if err != nil {
+		return "", "", nil, fmt.Errorf("read url content failed: %w", err)
+	}
+	if len(body) > MaxFetchedContentSize {
+		return "", "", nil, fmt.Errorf("url content too large (max %d bytes)", MaxFetchedContentSize)
+	}
+
+	contentType := strings.ToLower(strings.TrimSpace(resp.Header.Get("Content-Type")))
+	return extractHTMLTitle(string(body)), contentType, body, nil
+}
+
+func FetchURLContentViaTika(ctx context.Context, client *http.Client, tikaURL string, rawURL string) (string, string, error) {
+	base := strings.TrimRight(strings.TrimSpace(tikaURL), "/")
 	if base == "" {
-		return "", "", fmt.Errorf("docling url is empty")
+		return "", "", fmt.Errorf("tika url is empty")
 	}
-
-	payload := doclingConvertRequest{
-		Sources: []map[string]any{{"kind": "http", "url": rawURL}},
-		Options: map[string]any{"to_formats": []string{"md", "text"}},
-	}
-	body, err := json.Marshal(payload)
+	title, contentType, body, err := fetchURLBytes(ctx, client, rawURL)
 	if err != nil {
-		return "", "", fmt.Errorf("serialize docling request failed: %w", err)
+		return "", "", err
 	}
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, base+"/v1/convert/source", bytes.NewReader(body))
+	endpoint := base + "/tika"
+	if strings.Contains(contentType, "text/html") || strings.Contains(strings.ToLower(string(body)), "<html") {
+		endpoint = base + "/tika/main"
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPut, endpoint, bytes.NewReader(body))
 	if err != nil {
-		return "", "", fmt.Errorf("build docling request failed: %w", err)
+		return "", "", fmt.Errorf("build tika request failed: %w", err)
 	}
-	req.Header.Set("Content-Type", "application/json")
-	req.Header.Set("Accept", "application/json")
+	if contentType == "" {
+		contentType = "application/octet-stream"
+	}
+	req.Header.Set("Content-Type", contentType)
+	req.Header.Set("Accept", "text/plain")
 
 	httpClient := http.DefaultClient
 	if client != nil {
@@ -562,7 +543,7 @@ func FetchURLContentViaDocling(ctx context.Context, client *http.Client, docling
 	}
 	resp, err := httpClient.Do(req)
 	if err != nil {
-		return "", "", fmt.Errorf("docling request failed: %w", err)
+		return "", "", fmt.Errorf("tika request failed: %w", err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
@@ -571,49 +552,107 @@ func FetchURLContentViaDocling(ctx context.Context, client *http.Client, docling
 		if msg == "" {
 			msg = fmt.Sprintf("status %d", resp.StatusCode)
 		}
-		return "", "", fmt.Errorf("docling request returned %s", msg)
+		return "", "", fmt.Errorf("tika request returned %s", msg)
 	}
-
-	var parsed doclingConvertResponse
-	if err := json.NewDecoder(io.LimitReader(resp.Body, 4*1024*1024)).Decode(&parsed); err != nil {
-		return "", "", fmt.Errorf("decode docling response failed: %w", err)
+	data, err := io.ReadAll(io.LimitReader(resp.Body, MaxFetchedContentSize+1))
+	if err != nil {
+		return "", "", fmt.Errorf("read tika response failed: %w", err)
 	}
-
-	doc := parsed.Document
-	if doc == nil && len(parsed.Documents) > 0 {
-		doc = parsed.Documents[0].Document
+	if len(data) > MaxFetchedContentSize {
+		return "", "", fmt.Errorf("tika response too large (max %d bytes)", MaxFetchedContentSize)
 	}
-	if doc == nil {
-		return "", "", fmt.Errorf("docling response did not contain a document")
-	}
-
-	content := strings.TrimSpace(doc.MDContent)
+	content := strings.TrimSpace(string(data))
 	if content == "" {
-		content = strings.TrimSpace(doc.TextContent)
+		return "", "", fmt.Errorf("tika returned empty content")
 	}
-	if content == "" {
-		return "", "", fmt.Errorf("docling returned empty content")
-	}
-	title := strings.TrimSpace(doc.Filename)
 	if title == "" {
-		title = rawURL
+		title = deriveTitleFromURL(rawURL)
 	}
-	return title, TruncateRunes(content, MaxStoredContentRunes), nil
+	return title, TruncateRunes(textToMarkdown(title, content), MaxStoredContentRunes), nil
 }
 
-func IngestFileContent(ctx context.Context, client *http.Client, doclingURL string, filename string, data []byte) (IngestResult, error) {
-	title, content, err := FetchFileContentViaDocling(ctx, client, doclingURL, filename, data)
+func IngestFileContent(ctx context.Context, client *http.Client, tikaURL string, filename string, data []byte) (IngestResult, error) {
+	title, content, err := FetchFileContentViaTika(ctx, client, tikaURL, filename, data)
 	if err != nil {
 		return IngestResult{}, err
 	}
 	return IngestResult{
 		Title:   title,
 		Content: content,
-		Method:  "docling_file_markdown",
+		Method:  "tika_file_markdown",
 	}, nil
 }
 
-func FetchFileContentViaDocling(ctx context.Context, client *http.Client, doclingURL string, filename string, data []byte) (string, string, error) {
+func detectContentType(filename string, data []byte) string {
+	if ext := strings.ToLower(filepath.Ext(filename)); ext != "" {
+		if contentType := mime.TypeByExtension(ext); contentType != "" {
+			return contentType
+		}
+	}
+	if len(data) > 0 {
+		return http.DetectContentType(data)
+	}
+	return "application/octet-stream"
+}
+
+func deriveTitleFromURL(rawURL string) string {
+	if u, err := url.Parse(rawURL); err == nil {
+		name := strings.TrimSpace(filepath.Base(u.Path))
+		name = strings.TrimSuffix(name, filepath.Ext(name))
+		name = strings.ReplaceAll(name, "-", " ")
+		name = strings.ReplaceAll(name, "_", " ")
+		if name != "" && name != "." && name != "/" {
+			return name
+		}
+		if host := strings.TrimSpace(u.Hostname()); host != "" {
+			return host
+		}
+	}
+	return rawURL
+}
+
+func textToMarkdown(title string, content string) string {
+	content = strings.ReplaceAll(content, "\r\n", "\n")
+	content = strings.ReplaceAll(content, "\r", "\n")
+	content = strings.TrimSpace(content)
+	if content == "" {
+		return ""
+	}
+	lines := strings.Split(content, "\n")
+	paragraphs := make([]string, 0, len(lines))
+	buffer := make([]string, 0, 8)
+	flush := func() {
+		if len(buffer) == 0 {
+			return
+		}
+		paragraphs = append(paragraphs, strings.Join(buffer, " "))
+		buffer = buffer[:0]
+	}
+	for _, line := range lines {
+		line = strings.TrimSpace(line)
+		if line == "" {
+			flush()
+			continue
+		}
+		if looksLikeBoilerplate(line) {
+			continue
+		}
+		buffer = append(buffer, line)
+	}
+	flush()
+
+	body := strings.Join(paragraphs, "\n\n")
+	body = strings.TrimSpace(body)
+	if body == "" {
+		return ""
+	}
+	if strings.TrimSpace(title) != "" {
+		return "# " + strings.TrimSpace(title) + "\n\n" + body
+	}
+	return body
+}
+
+func FetchFileContentViaTika(ctx context.Context, client *http.Client, tikaURL string, filename string, data []byte) (string, string, error) {
 	filename = strings.TrimSpace(filename)
 	if filename == "" {
 		return "", "", fmt.Errorf("filename is required")
@@ -621,36 +660,22 @@ func FetchFileContentViaDocling(ctx context.Context, client *http.Client, doclin
 	if len(data) == 0 {
 		return "", "", fmt.Errorf("file is empty")
 	}
-	base := strings.TrimRight(strings.TrimSpace(doclingURL), "/")
+	base := strings.TrimRight(strings.TrimSpace(tikaURL), "/")
 	if base == "" {
-		return "", "", fmt.Errorf("docling url is empty")
+		return "", "", fmt.Errorf("tika url is empty")
 	}
-
-	body := &bytes.Buffer{}
-	writer := multipart.NewWriter(body)
-	part, err := writer.CreateFormFile("files", filename)
+	endpoint := base + "/tika"
+	contentType := detectContentType(filename, data)
+	if strings.Contains(contentType, "text/html") {
+		endpoint = base + "/tika/main"
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPut, endpoint, bytes.NewReader(data))
 	if err != nil {
-		return "", "", fmt.Errorf("create multipart file part failed: %w", err)
+		return "", "", fmt.Errorf("build tika file request failed: %w", err)
 	}
-	if _, err := part.Write(data); err != nil {
-		return "", "", fmt.Errorf("write multipart file failed: %w", err)
-	}
-	if err := writer.WriteField("to_formats", "md"); err != nil {
-		return "", "", fmt.Errorf("write multipart field failed: %w", err)
-	}
-	if err := writer.WriteField("to_formats", "text"); err != nil {
-		return "", "", fmt.Errorf("write multipart field failed: %w", err)
-	}
-	if err := writer.Close(); err != nil {
-		return "", "", fmt.Errorf("finalize multipart body failed: %w", err)
-	}
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodPost, base+"/v1/convert/file", body)
-	if err != nil {
-		return "", "", fmt.Errorf("build docling file request failed: %w", err)
-	}
-	req.Header.Set("Content-Type", writer.FormDataContentType())
-	req.Header.Set("Accept", "application/json")
+	req.Header.Set("Content-Type", contentType)
+	req.Header.Set("Accept", "text/plain")
+	req.Header.Set("Content-Disposition", fmt.Sprintf(`attachment; filename="%s"`, strings.ReplaceAll(filename, `"`, "")))
 
 	httpClient := http.DefaultClient
 	if client != nil {
@@ -658,7 +683,7 @@ func FetchFileContentViaDocling(ctx context.Context, client *http.Client, doclin
 	}
 	resp, err := httpClient.Do(req)
 	if err != nil {
-		return "", "", fmt.Errorf("docling file request failed: %w", err)
+		return "", "", fmt.Errorf("tika file request failed: %w", err)
 	}
 	defer resp.Body.Close()
 	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
@@ -667,34 +692,20 @@ func FetchFileContentViaDocling(ctx context.Context, client *http.Client, doclin
 		if msg == "" {
 			msg = fmt.Sprintf("status %d", resp.StatusCode)
 		}
-		return "", "", fmt.Errorf("docling file request returned %s", msg)
+		return "", "", fmt.Errorf("tika file request returned %s", msg)
 	}
-
-	var parsed doclingConvertResponse
-	if err := json.NewDecoder(io.LimitReader(resp.Body, 4*1024*1024)).Decode(&parsed); err != nil {
-		return "", "", fmt.Errorf("decode docling file response failed: %w", err)
+	payload, err := io.ReadAll(io.LimitReader(resp.Body, MaxFetchedContentSize+1))
+	if err != nil {
+		return "", "", fmt.Errorf("read tika file response failed: %w", err)
 	}
-
-	doc := parsed.Document
-	if doc == nil && len(parsed.Documents) > 0 {
-		doc = parsed.Documents[0].Document
+	if len(payload) > MaxFetchedContentSize {
+		return "", "", fmt.Errorf("tika file response too large (max %d bytes)", MaxFetchedContentSize)
 	}
-	if doc == nil {
-		return "", "", fmt.Errorf("docling file response did not contain a document")
-	}
-
-	content := strings.TrimSpace(doc.MDContent)
+	content := strings.TrimSpace(string(payload))
 	if content == "" {
-		content = strings.TrimSpace(doc.TextContent)
+		return "", "", fmt.Errorf("tika returned empty content for file")
 	}
-	if content == "" {
-		return "", "", fmt.Errorf("docling returned empty content for file")
-	}
-	title := strings.TrimSpace(doc.Filename)
-	if title == "" {
-		title = filename
-	}
-	return title, TruncateRunes(content, MaxStoredContentRunes), nil
+	return filename, TruncateRunes(textToMarkdown(filename, content), MaxStoredContentRunes), nil
 }
 
 func FetchURLContentViaPlaywright(ctx context.Context, cfg IngestConfig, rawURL string) (string, string, error) {

@@ -50,12 +50,12 @@ services:
       timeout: 5s
       retries: 20
 
-  docling:
-    image: quay.io/docling-project/docling-serve-cpu
-    container_name: naima-docling-dev
+  tika:
+    image: apache/tika:latest
+    container_name: naima-tika-dev
     restart: unless-stopped
     ports:
-      - "5001:5001"
+      - "9998:9998"
 
 volumes:
   pgvector_dev_data:
