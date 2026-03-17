@@ -467,6 +467,51 @@
       flex-direction: column;
       gap: 10px;
     }
+    .chat-scope {
+      border-bottom: 1px solid var(--border);
+      background: var(--surface-2);
+      padding: 10px 12px;
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      gap: 10px;
+      flex-shrink: 0;
+    }
+    .chat-scope-main {
+      min-width: 0;
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+    .chat-scope-title {
+      font-size: 10px;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      color: var(--muted);
+      margin: 0;
+    }
+    .chat-scope-summary {
+      font-size: 11px;
+      color: var(--text);
+      margin: 0;
+      overflow-wrap: anywhere;
+    }
+    .chat-scope-docs {
+      font-size: 10px;
+      color: var(--muted);
+      margin: 0;
+      overflow-wrap: anywhere;
+    }
+    .chat-scope-clear {
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: var(--surface);
+      color: var(--text);
+      padding: 7px 10px;
+      cursor: pointer;
+      font-size: 10px;
+      flex-shrink: 0;
+    }
     .row {
       display: flex;
       width: 100%;
@@ -687,10 +732,47 @@
       border-color: var(--accent);
       background: var(--surface-2);
     }
+    .pkb-card.is-selecting {
+      cursor: pointer;
+    }
+    .pkb-card.is-selected {
+      border-color: var(--accent);
+      background: var(--bubble-ai);
+      box-shadow: inset 0 0 0 1px var(--accent);
+    }
     .pkb-card h4 {
       margin: 0;
       font-size: 11px;
       color: var(--text);
+    }
+    .pkb-actions {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      margin-top: 10px;
+    }
+    .pkb-action {
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: var(--surface-2);
+      color: var(--text);
+      padding: 7px 10px;
+      font-size: 10px;
+      cursor: pointer;
+    }
+    .pkb-action.danger {
+      border-color: #8a3030;
+      color: #ff9f9f;
+      background: rgba(138, 48, 48, 0.12);
+    }
+    .pkb-action.primary {
+      border-color: var(--accent);
+      color: var(--text);
+      background: rgba(61, 242, 224, 0.12);
+    }
+    .pkb-action:disabled {
+      opacity: 0.5;
+      cursor: not-allowed;
     }
     .pkb-card p,
     .pkb-card div {
@@ -699,6 +781,46 @@
       font-size: 10px;
       line-height: 1.45;
       overflow-wrap: anywhere;
+    }
+    .pkb-topic-summary {
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: var(--surface-2);
+      padding: 8px 10px;
+      margin-bottom: 10px;
+    }
+    .pkb-topic-summary h4 {
+      margin: 0 0 6px;
+    }
+    .pkb-topic-summary p,
+    .pkb-topic-summary div {
+      margin: 0;
+    }
+    .pkb-topic-summary .pkb-topic-value {
+      color: var(--text);
+    }
+    .pkb-topic-summary-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      margin-bottom: 8px;
+    }
+    .pkb-topic-summary-title {
+      min-width: 0;
+      flex: 1;
+    }
+    .pkb-topic-summary-meta {
+      display: flex;
+      flex-direction: column;
+      gap: 4px;
+    }
+    .pkb-topic-summary-actions {
+      display: flex;
+      align-items: center;
+      justify-content: flex-end;
+      gap: 8px;
+      margin-top: 10px;
     }
     .pkb-content {
       white-space: normal;
@@ -883,6 +1005,14 @@
 <body>
   <div class="layout">
   <div class="app">
+    <div id="chatScope" class="chat-scope is-hidden">
+      <div class="chat-scope-main">
+        <p class="chat-scope-title">Document chat scope</p>
+        <p id="chatScopeSummary" class="chat-scope-summary"></p>
+        <p id="chatScopeDocs" class="chat-scope-docs"></p>
+      </div>
+      <button id="chatScopeClear" class="chat-scope-clear" type="button">Clear</button>
+    </div>
     <div id="messages" class="messages"></div>
     <div class="composer">
       <button id="ingestBtn" class="composer-action" type="button">Ingest</button>
@@ -1000,10 +1130,6 @@
         <label for="ingestFile">Document</label>
         <input id="ingestFile" type="file" accept=".pdf,.doc,.docx,.ppt,.pptx,.txt,.md,.html,.htm">
       </div>
-      <div class="dialog-field">
-        <label>Rule</label>
-        <div class="pkb-empty">Use either a URL or a document file, not both.</div>
-      </div>
       <div class="dialog-actions">
         <button id="ingestSubmit" type="button">Save</button>
       </div>
@@ -1024,6 +1150,10 @@
     const settingsPanelEl = document.querySelector(".settings-panel");
     const pkbShellEl = document.querySelector(".pkb-shell");
     const messagesEl = document.getElementById("messages");
+    const chatScopeEl = document.getElementById("chatScope");
+    const chatScopeSummaryEl = document.getElementById("chatScopeSummary");
+    const chatScopeDocsEl = document.getElementById("chatScopeDocs");
+    const chatScopeClearEl = document.getElementById("chatScopeClear");
     const statusEl = document.getElementById("status");
     const opsListEl = document.getElementById("opsList");
     const opsCollapseEl = document.getElementById("opsCollapse");
@@ -1059,6 +1189,8 @@
     const ingestSubmitEl = document.getElementById("ingestSubmit");
     const ingestStatusEl = document.getElementById("ingestStatus");
     let newConversationOnNextSend = true;
+    let pkbChatSelection = null;
+    let chatScopeState = null;
     const pkbSceneState = {
       renderer: null,
       scene: null,
@@ -1072,7 +1204,8 @@
       orbit: { yaw: 0.75, pitch: 0.55, radius: 28 },
       target: { currentX: 0, currentY: 2, currentZ: 0, goalX: 0, goalY: 2, goalZ: 0 },
       meshes: [],
-      selected: null
+      selected: null,
+      currentTopics: []
     };
 
     const tokenKey = "naima_api_token";
@@ -1134,6 +1267,7 @@
       ingestFileWrapEl.classList.toggle("is-hidden", !isFile);
     });
     ingestSubmitEl.addEventListener("click", submitIngest);
+    chatScopeClearEl.addEventListener("click", clearChatScope);
     toolsCollapseEl.addEventListener("click", () => {
       const next = !toolsListEl.classList.contains("is-hidden");
       applyToolsCollapsed(next);
@@ -1249,6 +1383,60 @@
       statusEl.textContent = text || "";
     }
 
+    function resetPKBChatSelection() {
+      pkbChatSelection = null;
+    }
+
+    function renderChatScope() {
+      if (!chatScopeState || !Array.isArray(chatScopeState.documents) || !chatScopeState.documents.length) {
+        chatScopeEl.classList.add("is-hidden");
+        chatScopeSummaryEl.textContent = "";
+        chatScopeDocsEl.textContent = "";
+        return;
+      }
+      chatScopeEl.classList.remove("is-hidden");
+      chatScopeSummaryEl.textContent = 'Topic: ' + (chatScopeState.topicTitle || 'Unknown') + ' | ' + chatScopeState.documents.length + ' document(s) selected';
+      chatScopeDocsEl.textContent = chatScopeState.documents.map((doc) => doc.title || ('Document ' + doc.id)).join(' | ');
+    }
+
+    async function clearChatScope() {
+      chatScopeState = null;
+      renderChatScope();
+      newConversationOnNextSend = true;
+      await resetAgentMemory("memory reset (chat scope cleared)");
+      addOp("document chat scope cleared");
+      setStatus("Document chat scope cleared.");
+    }
+
+    function buildScopedMessage(message) {
+      if (!chatScopeState || !Array.isArray(chatScopeState.documents) || !chatScopeState.documents.length) {
+        return message;
+      }
+      const docs = chatScopeState.documents.map((doc, index) => {
+        const title = doc.title || ('Document ' + doc.id);
+        const content = trimText(String(doc.content || '').trim(), 6000);
+        return [
+          'Document ' + (index + 1) + ': ' + title,
+          'Kind: ' + (doc.kind || 'note'),
+          doc.source_url ? ('Source: ' + doc.source_url) : '',
+          'Content:',
+          content
+        ].filter(Boolean).join('\n');
+      }).join('\n\n---\n\n');
+
+      return [
+        'Answer the user using only the following selected personal knowledge base documents.',
+        'If the answer is not supported by these documents, say that the selected documents do not contain enough information.',
+        'Do not use external knowledge, web knowledge, or unrelated memory.',
+        '',
+        'Selected topic: ' + (chatScopeState.topicTitle || 'Unknown'),
+        '',
+        docs,
+        '',
+        'User request: ' + message
+      ].join('\n');
+    }
+
     function addOp(text) {
       const li = document.createElement("li");
       const t = document.createElement("span");
@@ -1350,6 +1538,10 @@
     }
 
     async function resetMemoryOnRefresh() {
+      await resetAgentMemory("memory reset (page refresh)");
+    }
+
+    async function resetAgentMemory(opText) {
       const token = tokenEl.value.trim();
       if (!token) {
         return;
@@ -1362,7 +1554,10 @@
         if (!resp.ok) {
           return;
         }
-        addOp("memory reset (page refresh)");
+        if (opText) {
+          addOp(opText);
+        }
+        loadMemoryStatus();
       } catch (_) {
       }
     }
@@ -1488,15 +1683,24 @@
       }
       requestAnimationFrame(resizePKBRenderer);
       if (!meta) {
+        resetPKBChatSelection();
         pkbDetailEl.innerHTML = "<h4>Selection</h4><p>Pick a building or document node to inspect it.</p>";
         pkbDocumentsEl.innerHTML = "";
         return;
       }
 
       if (meta.kind === "topic") {
+        const isSelectingForChat = !!pkbChatSelection && Number(pkbChatSelection.topicID) === Number(meta.topic.id);
+        if (!isSelectingForChat) {
+          resetPKBChatSelection();
+        }
         const firstLink = (meta.topic.documents_list || []).find((doc) => doc.source_url);
+        const selectedCount = isSelectingForChat ? pkbChatSelection.selectedDocIDs.size : 0;
         pkbDetailEl.innerHTML =
           "<h4>" + escapeHtml(meta.topic.title) + "</h4>" +
+          (isSelectingForChat
+            ? '<div class="pkb-actions"><button class="pkb-action primary" type="button" data-pkb-chat-selected="' + escapeHtml(String(meta.topic.id)) + '"' + (selectedCount ? '' : ' disabled') + '>Chat with selected document(s)</button><button class="pkb-action" type="button" data-pkb-cancel-select-chat="' + escapeHtml(String(meta.topic.id)) + '">Cancel selection</button><button class="pkb-action danger" type="button" data-pkb-delete-topic="' + escapeHtml(String(meta.topic.id)) + '">Delete topic</button></div><p>' + escapeHtml(String(selectedCount)) + ' document(s) selected for chat.</p>'
+            : '<div class="pkb-actions"><button class="pkb-action primary" type="button" data-pkb-select-chat="' + escapeHtml(String(meta.topic.id)) + '">Select documents for chat</button><button class="pkb-action danger" type="button" data-pkb-delete-topic="' + escapeHtml(String(meta.topic.id)) + '">Delete topic</button></div>') +
           "<p>Topic building with " + escapeHtml(String((meta.topic.documents_list || []).length)) + " document(s).</p>" +
           "<p>Created: " + escapeHtml(formatDate(meta.topic.created_at)) + "</p>" +
           (firstLink ? '<p><a href="' + encodeURI(firstLink.source_url) + '" target="_blank" rel="noopener noreferrer">Open a source from this topic</a></p>' : "");
@@ -1506,15 +1710,130 @@
         const topicDocs = Array.isArray(meta.topic.documents_list) ? meta.topic.documents_list : [];
         const relatedDocs = topicDocs.filter((item) => Number(item.id) !== Number(doc.id));
         pkbDetailEl.innerHTML =
-          "<h4>" + escapeHtml(doc.title || "(untitled document)") + "</h4>" +
-          "<p>Topic: " + escapeHtml(doc.topic_title || meta.topic.title) + "</p>" +
+          '<div class="pkb-topic-summary">' +
+          '<div class="pkb-topic-summary-head">' +
+          '<div class="pkb-topic-summary-title"><h4>' + escapeHtml(doc.title || "(untitled document)") + "</h4></div>" +
+          '<button class="pkb-action" type="button" data-pkb-close-document="' + escapeHtml(String(meta.topic.id)) + '">Close</button>' +
+          "</div>" +
+          '<div class="pkb-topic-summary-meta">' +
+          '<p>Topic: <span class="pkb-topic-value">' + escapeHtml(doc.topic_title || meta.topic.title) + "</span></p>" +
           "<p>Kind: " + escapeHtml(doc.kind || "note") + "</p>" +
           (doc.ingest_method ? "<p>Ingest: " + escapeHtml(doc.ingest_method) + "</p>" : "") +
           (doc.source_url ? '<p><a href="' + encodeURI(doc.source_url) + '" target="_blank" rel="noopener noreferrer">Open source</a></p>' : "") +
-          '<div class="pkb-content">' + renderPKBContent(doc.content || "", doc.ingest_method || "") + "</div>";
+          "</div>" +
+          "</div>" +
+          '<div class="pkb-content">' + renderPKBContent(doc.content || "", doc.ingest_method || "") + "</div>" +
+          '<div class="pkb-topic-summary-actions"><button class="pkb-action danger" type="button" data-pkb-delete-document="' + escapeHtml(String(doc.id)) + '" data-pkb-topic-id="' + escapeHtml(String(meta.topic.id)) + '">Delete document</button></div>';
         renderPKBDocuments(relatedDocs);
       }
+      bindPKBChatSelectionActions();
+      bindPKBDeleteActions();
+      bindPKBCloseActions();
       renderPKBStats(pkbSceneState.currentTopics || []);
+    }
+
+    function bindPKBChatSelectionActions() {
+      pkbDetailEl.querySelectorAll("[data-pkb-select-chat]").forEach((button) => {
+        button.addEventListener("click", () => {
+          const topicID = Number(button.getAttribute("data-pkb-select-chat") || "0");
+          const topic = (pkbSceneState.currentTopics || []).find((item) => Number(item.id) === Number(topicID));
+          if (!topic) {
+            return;
+          }
+          pkbChatSelection = {
+            topicID,
+            selectedDocIDs: new Set()
+          };
+          renderPKBSelection({ kind: "topic", topic, focus: topic.focus || null });
+          setStatus("Select one or more documents, then start chat with them.");
+        });
+      });
+      pkbDetailEl.querySelectorAll("[data-pkb-chat-selected]").forEach((button) => {
+        button.addEventListener("click", async () => {
+          if (!pkbChatSelection) {
+            return;
+          }
+          const topic = (pkbSceneState.currentTopics || []).find((item) => Number(item.id) === Number(pkbChatSelection.topicID));
+          if (!topic) {
+            return;
+          }
+          const selected = (topic.documents_list || []).filter((doc) => pkbChatSelection.selectedDocIDs.has(Number(doc.id)));
+          if (!selected.length) {
+            setStatus("Select at least one document first.");
+            return;
+          }
+          chatScopeState = {
+            topicID: topic.id,
+            topicTitle: topic.title || ("Topic " + topic.id),
+            documents: selected.map((doc) => ({ ...doc }))
+          };
+          renderChatScope();
+          newConversationOnNextSend = true;
+          await resetAgentMemory("memory reset (document chat scope applied)");
+          closePKBView();
+          addOp("document chat scope applied");
+          setStatus("Document chat scope ready. Your next message will use only the selected documents.");
+        });
+      });
+      pkbDetailEl.querySelectorAll("[data-pkb-cancel-select-chat]").forEach((button) => {
+        button.addEventListener("click", () => {
+          const topicID = Number(button.getAttribute("data-pkb-cancel-select-chat") || "0");
+          pkbChatSelection = null;
+          const topic = (pkbSceneState.currentTopics || []).find((item) => Number(item.id) === Number(topicID));
+          if (!topic) {
+            renderPKBSelection(null);
+            return;
+          }
+          renderPKBSelection({ kind: "topic", topic, focus: topic.focus || null });
+        });
+      });
+    }
+
+    function bindPKBCloseActions() {
+      pkbDetailEl.querySelectorAll("[data-pkb-close-document]").forEach((node) => {
+        node.addEventListener("click", (event) => {
+          const topicID = Number(node.getAttribute("data-pkb-close-document") || "0");
+          if (!topicID) {
+            return;
+          }
+          const topic = (pkbSceneState.currentTopics || []).find((item) => Number(item.id) === Number(topicID));
+          if (!topic) {
+            return;
+          }
+          renderPKBSelection({ kind: "topic", topic, focus: topic.focus || null });
+        });
+      });
+    }
+
+    function bindPKBDeleteActions() {
+      pkbDetailEl.querySelectorAll("[data-pkb-delete-topic]").forEach((button) => {
+        button.addEventListener("click", async () => {
+          const topicID = Number(button.getAttribute("data-pkb-delete-topic") || "0");
+          if (!topicID) {
+            return;
+          }
+          const selected = pkbSceneState.selected;
+          const title = selected && selected.topic ? (selected.topic.title || ("Topic " + topicID)) : ("Topic " + topicID);
+          if (!window.confirm('Delete topic "' + title + '" and all related documents?')) {
+            return;
+          }
+          await deletePKBTopic(topicID);
+        });
+      });
+      pkbDetailEl.querySelectorAll("[data-pkb-delete-document]").forEach((button) => {
+        button.addEventListener("click", async () => {
+          const documentID = Number(button.getAttribute("data-pkb-delete-document") || "0");
+          if (!documentID) {
+            return;
+          }
+          const selected = pkbSceneState.selected;
+          const title = selected && selected.document ? (selected.document.title || ("Document " + documentID)) : ("Document " + documentID);
+          if (!window.confirm('Delete document "' + title + '"?')) {
+            return;
+          }
+          await deletePKBDocument(documentID);
+        });
+      });
     }
 
     function renderPKBDocuments(documents) {
@@ -1523,9 +1842,11 @@
         pkbDocumentsEl.innerHTML = '<div class="pkb-empty">No documents in this selection.</div>';
         return;
       }
+      const selecting = !!pkbChatSelection;
       for (const doc of documents) {
         const card = document.createElement("div");
-        card.className = "pkb-card is-clickable";
+        const selected = selecting && pkbChatSelection.selectedDocIDs.has(Number(doc.id));
+        card.className = "pkb-card " + (selecting ? "is-selecting" : "is-clickable") + (selected ? " is-selected" : "");
         card.innerHTML =
           "<h4>" + escapeHtml(doc.title || "(untitled document)") + "</h4>" +
           "<p>" + escapeHtml(doc.kind || "note") + "</p>" +
@@ -1534,6 +1855,21 @@
           "<div>" + escapeHtml(trimText(doc.content || "", 260)) + "</div>";
         card.addEventListener("click", (event) => {
           if (event.target && event.target.closest("a")) {
+            return;
+          }
+          if (selecting) {
+            const docID = Number(doc.id);
+            if (pkbChatSelection.selectedDocIDs.has(docID)) {
+              pkbChatSelection.selectedDocIDs.delete(docID);
+            } else {
+              pkbChatSelection.selectedDocIDs.add(docID);
+            }
+            const topic = (pkbSceneState.currentTopics || []).find((item) => Number(item.id) === Number(doc.topic_id)) || {
+              id: doc.topic_id,
+              title: doc.topic_title || "",
+              documents_list: documents
+            };
+            renderPKBSelection({ kind: "topic", topic, focus: topic.focus || null });
             return;
           }
           const topic = (pkbSceneState.currentTopics || []).find((item) => Number(item.id) === Number(doc.topic_id)) || {
@@ -1931,6 +2267,55 @@
       }
     }
 
+    async function deletePKBTopic(topicID) {
+      try {
+        const response = await fetch("/api/pkb/topics/" + encodeURIComponent(String(topicID)), {
+          method: "DELETE",
+          headers: authHeaders()
+        });
+        if (!response.ok) {
+          throw new Error(await errorMessage(response));
+        }
+        if (chatScopeState && Number(chatScopeState.topicID) === Number(topicID)) {
+          chatScopeState = null;
+          renderChatScope();
+          newConversationOnNextSend = true;
+          await resetAgentMemory("memory reset (scoped topic deleted)");
+        }
+        addOp("topic deleted from personal knowledge base");
+        setStatus("Topic deleted.");
+        await openPKBView(true);
+      } catch (err) {
+        setStatus("Delete topic failed: " + (err?.message || String(err)));
+      }
+    }
+
+    async function deletePKBDocument(documentID) {
+      try {
+        const response = await fetch("/api/pkb/documents/" + encodeURIComponent(String(documentID)), {
+          method: "DELETE",
+          headers: authHeaders()
+        });
+        if (!response.ok) {
+          throw new Error(await errorMessage(response));
+        }
+        if (chatScopeState && Array.isArray(chatScopeState.documents)) {
+          chatScopeState.documents = chatScopeState.documents.filter((doc) => Number(doc.id) !== Number(documentID));
+          if (!chatScopeState.documents.length) {
+            chatScopeState = null;
+          }
+          renderChatScope();
+          newConversationOnNextSend = true;
+          await resetAgentMemory("memory reset (scoped document deleted)");
+        }
+        addOp("document deleted from personal knowledge base");
+        setStatus("Document deleted.");
+        await openPKBView(true);
+      } catch (err) {
+        setStatus("Delete document failed: " + (err?.message || String(err)));
+      }
+    }
+
     async function openIngestDialog() {
       if (!tokenEl.value.trim()) {
         setStatus("Set API token first.");
@@ -2041,6 +2426,7 @@
 
     function closePKBView() {
       stopPKBResizeLoop();
+      resetPKBChatSelection();
       pkbOverlayEl.classList.add("is-hidden");
       pkbShellEl.classList.remove("has-selection");
       addOp("topics view closed");
@@ -2105,7 +2491,7 @@
       const aiBubble = addBubble("ai", "");
       let aiRaw = "";
       const payload = {
-        message,
+        message: buildScopedMessage(message),
         new_conversation: newConversationOnNextSend
       };
       newConversationOnNextSend = false;

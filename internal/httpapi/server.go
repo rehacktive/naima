@@ -61,6 +61,8 @@ type pkbReader interface {
 	ListDocuments(ctx context.Context, topicID int64) ([]pkb.Document, error)
 	CreateTopic(ctx context.Context, title string) (pkb.Topic, error)
 	CreateDocument(ctx context.Context, req pkb.CreateDocumentRequest) (pkb.Document, error)
+	DeleteTopic(ctx context.Context, topicID int64) error
+	DeleteDocument(ctx context.Context, documentID int64) error
 }
 
 func IsEnabled() bool {
@@ -300,6 +302,54 @@ func RunServer(ctx context.Context, agentInstance *agent.Agent, pkbStore pkbRead
 			"count":  len(out),
 		})
 	})
+	mux.HandleFunc("/api/pkb/topics/", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodDelete {
+			writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+			return
+		}
+		if !authorizeRequest(r, cfg.Token) {
+			writeError(w, http.StatusUnauthorized, "unauthorized")
+			return
+		}
+		if pkbStore == nil {
+			writeError(w, http.StatusServiceUnavailable, "personal knowledge base is not configured")
+			return
+		}
+		id, err := parsePKBID(r.URL.Path, "/api/pkb/topics/")
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		if err := pkbStore.DeleteTopic(r.Context(), id); err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"status": "ok", "deleted_topic_id": id})
+	})
+	mux.HandleFunc("/api/pkb/documents/", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodDelete {
+			writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+			return
+		}
+		if !authorizeRequest(r, cfg.Token) {
+			writeError(w, http.StatusUnauthorized, "unauthorized")
+			return
+		}
+		if pkbStore == nil {
+			writeError(w, http.StatusServiceUnavailable, "personal knowledge base is not configured")
+			return
+		}
+		id, err := parsePKBID(r.URL.Path, "/api/pkb/documents/")
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		if err := pkbStore.DeleteDocument(r.Context(), id); err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"status": "ok", "deleted_document_id": id})
+	})
 	mux.HandleFunc("/api/pkb/ingest", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {
 			writeError(w, http.StatusMethodNotAllowed, "method not allowed")
@@ -497,6 +547,18 @@ func RunServer(ctx context.Context, agentInstance *agent.Agent, pkbStore pkbRead
 	}
 
 	return <-shutdownErr
+}
+
+func parsePKBID(path string, prefix string) (int64, error) {
+	raw := strings.TrimSpace(strings.TrimPrefix(path, prefix))
+	if raw == "" || raw == path || strings.Contains(raw, "/") {
+		return 0, errors.New("invalid resource id")
+	}
+	id, err := strconv.ParseInt(raw, 10, 64)
+	if err != nil || id <= 0 {
+		return 0, errors.New("invalid resource id")
+	}
+	return id, nil
 }
 
 type config struct {
