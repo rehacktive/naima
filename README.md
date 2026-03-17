@@ -1,22 +1,53 @@
 <img src="internal/httpapi/ui/logo2.png" alt="Naima Logo" width="320">
 
-Naima is a Go-based AI agent.
+Naima is a Go-based AI agent with:
+- persistent conversation memory via [Memorya](https://github.com/rehacktive/memorya)
+- pgvector-backed recall
+- a built-in streaming web UI
+- Telegram integration
+- a personal knowledge base with 3D visualization
+- tool calling, scheduling, browser automation, and web search
+
+## Overview
+
+Main capabilities:
+- chat through web UI, REST API, or Telegram
+- stream model output to the web UI and optionally to Telegram drafts
+- persist conversation memory in PostgreSQL/pgvector
+- ingest URLs and files into a personal knowledge base
+- browse/search the web through local SearxNG
+- extract document text through Apache Tika
+- automate websites through Playwright
+- schedule alarms or future agent tasks persisted in PostgreSQL
+- send results to Telegram
 
 ## Run
 
+### Full stack with Docker Compose
+
 ```sh
 cp .env.example .env
-# Edit .env and set OPENAI_API_KEY, OPENAI_MODEL, and OPENAI_EMBEDDING_MODEL
-# Set TELEGRAM_BOT_TOKEN to enable Telegram, or NAIMA_API_TOKEN to enable the REST API
-# Optionally set OPENAI_BASE_URL for a local or OpenAI-compatible endpoint
-# Set DOMAIN to your public DNS name pointing to this host (used by Caddy for TLS)
+# Edit .env and set at least:
+# - OPENAI_API_KEY
+# - OPENAI_MODEL
+# - OPENAI_EMBEDDING_MODEL
+# - NAIMA_API_TOKEN and/or TELEGRAM_BOT_TOKEN
+# - DOMAIN if you want Caddy/TLS
+
 docker compose up -d --build
 ```
 
+This starts:
+- `naima`
+- `caddy`
+- `pgvector`
+- `redis`
+- `searxng`
+- `tika`
+
 ### Local development services only
 
-If you want to run Naima directly on your host and use Docker only for its
-dependencies, use:
+If you want to run Naima directly on your host and keep only dependencies in Docker:
 
 ```sh
 docker compose -f docker-compose.dev.yml up -d
@@ -30,391 +61,335 @@ This starts:
 
 In this mode, `naima` and `caddy` are not started.
 
-### Run only Naima container
-
-If `pgvector` and `searxng` are already running elsewhere, you can build/run just
-the Naima image:
+### Run only the Naima container
 
 ```sh
 docker build -t naima:latest .
 docker run --rm -it --env-file .env -p 8080:8080 --name naima naima:latest
 ```
 
-On first run, the app prints a link code in the terminal. Send that code to the bot
-in Telegram to bind the agent to your user ID. After that, only your user can chat
-with the agent.
-When using Docker Compose, this link session is persisted in the `naima_data`
-volume (`/data/.naima_session.json`) so you do not need to relink on each restart.
+## Telegram
 
-Telegram audio messages are supported:
-- voice/audio messages are transcribed via OpenAI `/audio/transcriptions`
-- transcription is processed as a normal agent message
-- reply is sent as text plus generated speech via OpenAI `/audio/speech`
+Set `TELEGRAM_BOT_TOKEN` to enable Telegram.
+
+On first run, Naima prints a link code in the terminal. Send that code to the bot to bind your Telegram account to the running agent. When using Docker Compose, the Telegram session is persisted in the `naima_data` volume at `/data/.naima_session.json`.
+
+Telegram features:
+- normal text chat
+- optional draft streaming via Telegram Bot API draft updates
+- audio/voice input transcription through OpenAI `/audio/transcriptions`
+- text reply plus generated voice reply through OpenAI `/audio/speech`
+- `/new` or `/reset` clears the current memory
 
 ## REST API
 
-Set `NAIMA_API_TOKEN` to enable the REST endpoint. Optionally set `NAIMA_API_ADDR`
-to change the listen address (default `:8080`).
+Set `NAIMA_API_TOKEN` to enable the REST API. Optionally set `NAIMA_API_ADDR` to change the listen address. Default is `:8080`.
+
+### Standard chat endpoint
+
+```sh
+curl -sS -X POST "http://localhost:8080/api/messages" \
+  -H "Authorization: Bearer $NAIMA_API_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"message":"Hello"}'
+```
+
+To force a fresh conversation:
+
+```sh
+curl -sS -X POST "http://localhost:8080/api/messages" \
+  -H "Authorization: Bearer $NAIMA_API_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"message":"Hello again","new_conversation":true}'
+```
+
+### Streaming chat endpoint
+
+```sh
+curl -N -X POST "http://localhost:8080/api/messages/stream" \
+  -H "Authorization: Bearer $NAIMA_API_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"message":"Hello"}'
+```
+
+SSE events:
+- `start`
+- `delta`
+- `done`
+- `error`
+- `op`
+
+### Memory endpoints
+
+Reset memory:
+
+```sh
+curl -sS -X POST "http://localhost:8080/api/memory/reset" \
+  -H "Authorization: Bearer $NAIMA_API_TOKEN"
+```
+
+Get current memory status:
+
+```sh
+curl -sS "http://localhost:8080/api/memory/status" \
+  -H "Authorization: Bearer $NAIMA_API_TOKEN"
+```
+
+### Tools endpoints
+
+List tools:
+
+```sh
+curl -sS "http://localhost:8080/api/tools" \
+  -H "Authorization: Bearer $NAIMA_API_TOKEN"
+```
+
+Enable or disable a tool:
+
+```sh
+curl -sS -X POST "http://localhost:8080/api/tools" \
+  -H "Authorization: Bearer $NAIMA_API_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"name":"web_search","enabled":false}'
+```
 
 ## Web UI
 
-Naima serves a built-in chat UI at:
-
+Naima serves a built-in web UI directly from disk at:
 - [https://YOUR_DOMAIN/](https://YOUR_DOMAIN/)
+- or `http://localhost:8080/` when running without Caddy
 
-When running through Docker Compose, Caddy terminates TLS on standard ports and
-proxies traffic to Naima inside the Docker network.
+Current web UI features:
+- streaming chat
+- live markdown rendering while streaming
+- operations panel showing agent steps and tool activity
+- theme selector with `Void`, `Void Light`, `Quantum`, `Quantum Light`
+- optional UI Basic Auth
+- collapsible `Settings`, `Tools`, `Memory`, and `Operations` panels
+- personal knowledge base 3D view
+- file and URL ingestion dialog
+- topic/document delete actions
+- topic-scoped document selection for chat
 
-Optional Basic Auth for UI:
+### UI Basic Auth
+
+Optional env vars:
 - `NAIMA_UI_BASIC_AUTH_USER`
-- `NAIMA_UI_BASIC_AUTH_PASS` (SHA256 hex digest of the real password)
+- `NAIMA_UI_BASIC_AUTH_PASS`
 
-When both are set, the browser asks for username/password before loading the UI.
-Generate the hash value with:
+`NAIMA_UI_BASIC_AUTH_PASS` must be the lowercase SHA256 hex digest of the password that the browser user types.
+
+Generate it with:
 
 ```sh
 ./hash_ui_basic_auth_pass.sh "your-password"
 ```
 
-Enter your API token in the page, then chat. Responses stream from
-`/api/messages/stream`.
-The UI file is served from disk (`internal/httpapi/ui/index.html`) so page
-changes are picked up without restarting Naima.
-
-Example request:
-
-```sh
-curl -sS -X POST "http://localhost:8080/api/messages" \
-	-H "Authorization: Bearer $NAIMA_API_TOKEN" \
-	-H "Content-Type: application/json" \
-	-d '{"message":"Hello"}'
-```
-
-### REST Streaming
-
-For token streaming, use the SSE endpoint:
-
-```sh
-curl -N -X POST "http://localhost:8080/api/messages/stream" \
-	-H "Authorization: Bearer $NAIMA_API_TOKEN" \
-	-H "Content-Type: application/json" \
-	-d '{"message":"Hello"}'
-```
-
-Stream events:
-- `start`
-- `delta` (token chunks)
-- `done` (final response)
-- `error`
-- `op` (operation/status messages)
-
-### Tools API
-
-List current tool states (enabled/disabled):
-
-```sh
-curl -sS "http://localhost:8080/api/tools" \
-	-H "Authorization: Bearer $NAIMA_API_TOKEN"
-```
-
-Enable/disable a tool:
-
-```sh
-curl -sS -X POST "http://localhost:8080/api/tools" \
-	-H "Authorization: Bearer $NAIMA_API_TOKEN" \
-	-H "Content-Type: application/json" \
-	-d '{"name":"web_search","enabled":false}'
-```
-
 ## Tools
 
-Naima can call tools during model responses. You can enable/disable tools at
-runtime via `/api/tools` or from the web UI.
+Naima injects tool guidance dynamically:
+- base prompt from `prompt.txt`
+- per-tool guidance from `internal/tools/<tool_name>.md`
+- only enabled tools are injected into the model system prompt
 
-Tool prompt guidance is dynamic:
-- Base prompt is loaded from `prompt.txt`.
-- Per-tool guidance is loaded from `internal/tools/<tool_name>.md`.
-- Only enabled tools have their guidance injected into the model system prompt.
+### Registered tools
 
-### Available tools
+| Tool | Description |
+| --- | --- |
+| `time` | current local and UTC time |
+| `weather` | weather + 7-day forecast for a location |
+| `web_search` | generic search over local SearxNG |
+| `news_digest` | curated news digest over SearxNG news results |
+| `personal_knowledge_base` | CRUD over topics/documents plus ingestion and temporal search |
+| `playwright` | browser automation and page extraction |
+| `task_scheduler` | persistent alarms and scheduled agent tasks |
+| `long_memory` | semantic recall and LLM summary of past conversation |
+| `memory_dump` | debug dump of current in-memory conversation state |
+| `telegram_send` | send a Telegram message to the linked account when Telegram is configured |
 
-| Tool | What it does | Typical use |
-| --- | --- | --- |
-| `time` | Returns current local/UTC timestamp | "What time is it?" |
-| `weather` | Returns current weather and 7-day forecast for a location | "Weather in Milan today and this week" |
-| `web_search` | Searches web/news/images via local SearxNG | Fresh facts, current events, citations |
-| `news_digest` | Builds concise topic-based news digest from SearxNG news results | "Give me a digest on AI regulation this week" |
-| `personal_knowledge_base` | CRUD for personal topics and associated documents/notes | "Create topic Golang", "add this URL to topic 3" |
-| `playwright` | Automates a browser session and extracts page data | Navigate pages, click/type/press, scrape content |
-| `telegram_send` | Sends a text message to your linked Telegram account | "Do X and send the result to Telegram" |
-| `task_scheduler` | Creates persistent scheduled tasks (one-time/cron) | "Set an alarm in 5 minutes", "Send me news every day at 10" |
-| `long_memory` | Recalls relevant past conversations and summarizes them | "What did we decide about X?" |
+### Tool notes
 
-### `time`
+#### `weather`
+- input: `location`
+- returns current conditions and 7-day forecast
+- uses Open-Meteo
 
-- No parameters required.
-- Returns JSON with local and UTC timestamps.
+#### `web_search`
+- generic query tool for web/news/images
+- backed by local SearxNG
 
-### `weather`
+#### `news_digest`
+- focused news-summary tool
+- deduplicates and summarizes SearxNG news results
+- useful for scheduled digests
 
-Required:
-- `location` (`string`) location to lookup (example: `Rome, Italy`)
+#### `personal_knowledge_base`
+Supports:
+- topic CRUD
+- document CRUD
+- URL ingestion
+- note ingestion
+- temporal search over ingested material
 
-Behavior:
-- Uses Open-Meteo geocoding + forecast APIs
-- Returns:
-  - current conditions (temperature, wind, weather code/description)
-  - 7-day forecast (min/max and condition per day)
+URL ingestion modes:
+- `hybrid` default
+- `tika`
+- `playwright`
+- `fetch`
 
-### `web_search`
+Hybrid mode combines:
+- direct fetch
+- Tika extraction
+- Playwright extraction
+- deterministic cleanup into normalized markdown/text
 
-Required:
-- `query` (`string`)
+File ingestion from the web UI:
+- stores uploaded files locally
+- extracts text through Tika
+- saves extracted content as a PKB document under the selected topic
 
-Optional:
-- `categories` (`[]string`) examples: `["web"]`, `["news"]`, `["images"]`
-- `engines` (`[]string`) examples: `["duckduckgo"]`
-- `time_range` (`string`) one of `day|month|year`
-- `language` (`string`) example: `en-US`
-- `limit` (`int`) max results to return
+#### `playwright`
+Supports operations such as:
+- `goto`
+- `scrape`
+- `click`
+- `type`
+- `press`
+- `evaluate`
+- `screenshot`
+- `snapshot_for_ai`
+- `close`
 
-### `news_digest`
+#### `task_scheduler`
+Supports:
+- one-shot alarms
+- one-shot agent tasks
+- cron-style recurring tasks
+- PostgreSQL persistence across restarts
+- Telegram delivery when enabled
 
-Required:
-- `topic` (`string`)
+#### `long_memory`
+- retrieves related prior conversation through embeddings
+- summarizes the recalled messages with the LLM
 
-Optional:
-- `region` (`string`) regional focus
-- `time_range` (`string`) one of `day|week|month|year`
-- `language` (`string`) Searx language code
-- `max_items` (`int`) number of headlines in digest (1-15)
+#### `memory_dump`
+- debugging tool
+- returns current in-memory messages as JSON
 
-Behavior:
-- Queries SearxNG news results
-- Deduplicates/ranks headlines
-- Returns:
-  - `digest` (compact textual summary)
-  - `items` (structured list with title/url/source/snippet)
+## Personal Knowledge Base
 
-### `personal_knowledge_base`
+The personal knowledge base stores:
+- topics in `pkb_topics`
+- documents in `pkb_documents`
 
-Operations:
-- Topics:
-  - `create_topic` (`topic`)
-  - `list_topics`
-  - `update_topic` (`topic_id`, `topic`)
-  - `delete_topic` (`topic_id`)
-- Documents:
-  - `add_content` (`topic_id` + `url` and/or `note`, optional `title`/`content`)
-  - `list_documents` (`topic_id`)
-  - `temporal_search` (`timeframe` or `since`/`until`, optional `topic_id`)
-  - `update_document` (`document_id`, `content`, optional `title`/`url`)
-  - `delete_document` (`document_id`)
+Each document belongs to one topic.
 
-Behavior:
-- Stores data in PostgreSQL (`pkb_topics`, `pkb_documents`)
-- Each document belongs to one topic
-- `add_content` supports:
-  - URL ingestion (default `hybrid` mode combines direct fetch, Tika, and Playwright article extraction into cleaned markdown)
-  - manual notes (stores provided note/content)
-- URL-ingested documents persist `ingest_method` so you can see whether content
-  came from `hybrid_markdown`, `tika_markdown`, `playwright_markdown`,
-  `fallback_text`, `direct_text`, or `manual_note`
-- The web UI `Ingest` dialog can upload local files (PDF, DOCX, TXT, Markdown, HTML).
-  Uploaded files are stored locally and processed through Tika only, then
-  the extracted content is saved as a PKB document connected to the selected topic.
-- `temporal_search` supports:
-  - presets: `today`, `week`, `month`
-  - custom RFC3339 range with `since` and `until`
-  - returns matching documents plus one aggregated `structured_document`
+### Ingestion
 
-### `playwright`
+Supported sources:
+- URL
+- manual note
+- uploaded file
 
-Browser automation tool backed by `playwright-go`.
+Stored documents include `ingest_method`, for example:
+- `hybrid_markdown`
+- `tika_markdown`
+- `playwright_markdown`
+- `fallback_text`
+- `direct_text`
+- `manual_note`
+- `tika_file_markdown`
 
-Required:
-- `operation` (`string`)
+### PKB UI
 
-Supported operations:
-- `goto|navigate`: open URL and return scrape output
-- `scrape`: return current page text/title
-- `click`: click selector, then scrape
-- `type`: fill selector with text, then scrape
-- `press`: key press on selector (defaults to `Enter` if no value), then scrape
-- `evaluate`: run JavaScript and return result
-- `screenshot`: return base64 PNG
-- `snapshot_for_ai`: best-effort call to hidden runtime helper if available
-- `close|reset`: close Playwright session
+The web UI includes a 3D PKB view powered by Three.js.
 
-Parameters:
-- `url` (`string`): required for first call and for `goto|navigate`
-- `selector` (`string`): required for `click|type|press`
-- `value` (`string`): text for `type`, key for `press`
-- `script` (`string`): required for `evaluate`
-- `wait_ms` (`int`): optional post-action wait
-- `full_page` (`bool`): optional for `screenshot`
+Features:
+- topics visualized as buildings
+- documents visualized as related nodes
+- topic/document inspection in the right panel
+- clickable document source links
+- topic delete and document delete actions
+- document selection mode for scoped chat
 
-Recommended flow:
-1. `goto` with `url`
-2. Run one or more actions (`click`, `type`, `press`)
-3. Use `scrape`/`evaluate`/`screenshot` as needed
-4. `close` when done
+### Scoped chat over selected documents
 
-### `long_memory`
+From a topic in the PKB UI:
+1. click `Select documents for chat`
+2. select one or more documents visually
+3. click `Chat with selected document(s)`
 
-Required:
-- `something` (`string`) short topic to recall
+Naima returns to the main chat UI and shows a scope banner.
+While the scope is active:
+- chat requests are built only on top of the selected documents
+- clearing the scope resets memory immediately
+- applying a scope also resets memory immediately
 
-Behavior:
-- Finds related past messages via embeddings search
-- Produces a summary (LLM-based, with fallback)
+## Conversation Memory
 
-### `telegram_send`
-
-Required:
-- `message` (`string`) text to send
+Naima uses [Memorya](https://github.com/rehacktive/memorya) with PostgreSQL/pgvector storage.
 
 Behavior:
-- Sends message to the user linked via Telegram session (`.naima_session.json` or `NAIMA_SESSION_FILE`)
-- Tool is available only when `TELEGRAM_BOT_TOKEN` is configured
+- active memory starts empty on process restart
+- embeddings are generated for incoming messages before persistence
+- semantic recall is available through pgvector
+- LLM summarization is used to compact memory when context reaches capacity
+- compacted memory becomes: `pinned messages + one summary message`
+- the web UI shows current memory status in the `Memory` panel
 
-### `task_scheduler`
+## Logging
 
-Operations:
-- `create`: create a task
-- `list`: list tasks
-- `cancel`: disable task by id
+Naima uses structured colored terminal logs through `logrus`.
 
-Create parameters:
-- `kind`: `alarm` or `agent`
-  - `alarm`: sends fixed `content` when triggered
-  - `agent`: runs `content` as a prompt through Naima at trigger time
-- `title`: short label
-- `content` (or `prompt`/`message`): task payload
-- one-time schedule:
-  - `in`: relative duration (`5m`, `2h`)
-  - or `run_at`: RFC3339 timestamp
-- recurring schedule:
-  - `cron`: 5-field cron expression (`minute hour day month weekday`)
-- `send_telegram`: default `true`
+Logs include steps such as:
+- message received
+- embeddings generated
+- message saved
+- tool execution
+- reply completed
 
-Examples:
-- Alarm in 5 minutes:
-```json
-{"operation":"create","kind":"alarm","title":"Alarm","content":"Time is up","in":"5m","send_telegram":true}
-```
-- Daily news at 10:00:
-```json
-{"operation":"create","kind":"agent","title":"Daily news","content":"Get latest world news summary","cron":"0 10 * * *","send_telegram":true}
-```
-- List tasks:
-```json
-{"operation":"list"}
-```
-- Cancel task:
-```json
-{"operation":"cancel","id":12}
-```
+The web UI `Operations` panel mirrors the important high-level operations.
 
-To start a new conversation (clear Memorya context) with REST:
+## Configuration
 
-```sh
-curl -sS -X POST "http://localhost:8080/api/messages" \
-	-H "Authorization: Bearer $NAIMA_API_TOKEN" \
-	-H "Content-Type: application/json" \
-	-d '{"message":"Hello again","new_conversation":true}'
-```
+Important environment variables:
 
-or:
+- `TELEGRAM_BOT_TOKEN`: enable Telegram integration
+- `NAIMA_TELEGRAM_STREAM`: enable Telegram draft streaming, default `false`
+- `NAIMA_TRANSCRIPTION_MODEL`: OpenAI transcription model, default `whisper-1`
+- `NAIMA_TTS_MODEL`: OpenAI speech model, default `tts-1`
+- `NAIMA_TTS_VOICE`: OpenAI voice, default `alloy`
+- `NAIMA_TTS_FORMAT`: OpenAI speech format, default `mp3`
+- `NAIMA_SESSION_FILE`: Telegram session file path
+- `NAIMA_API_ADDR`: REST listen address, default `:8080`
+- `NAIMA_API_TOKEN`: REST/UI bearer token
+- `NAIMA_UI_BASIC_AUTH_USER`: optional UI Basic Auth username
+- `NAIMA_UI_BASIC_AUTH_PASS`: optional UI Basic Auth password hash
+- `OPENAI_API_KEY`: OpenAI-compatible API key
+- `OPENAI_MODEL`: chat model
+- `OPENAI_EMBEDDING_MODEL`: embedding model
+- `OPENAI_BASE_URL`: optional OpenAI-compatible base URL
+- `NAIMA_MEMORY_MAX_CONTEXT`: max in-memory context messages
+- `NAIMA_MEMORY_SUMMARY_TIMEOUT_MS`: memory summarizer timeout
+- `NAIMA_PGVECTOR_DSN`: PostgreSQL DSN
+- `NAIMA_PGVECTOR_SEARCH_LIMIT`: recall search limit
+- `NAIMA_PGVECTOR_EMBEDDING_DIMS`: embedding dimensions, use `0` to avoid ivfflat index creation
+- `NAIMA_SEARX_URL`: local SearxNG URL
+- `NAIMA_TIKA_URL`: Tika server URL
+- `NAIMA_TIKA_ALLOW_FALLBACK`: fallback to plain extraction if Tika fails
+- `NAIMA_TIKA_FILE_TIMEOUT_MS`: timeout for file extraction through Tika
+- `NAIMA_PKB_INGEST_MODE`: `hybrid`, `tika`, `playwright`, or `fetch`
+- `NAIMA_PKB_UPLOAD_DIR`: local storage directory for uploaded PKB files
+- `NAIMA_PLAYWRIGHT_HEADLESS`: Playwright headless mode
+- `NAIMA_PLAYWRIGHT_TIMEOUT_MS`: Playwright timeout
+- `NAIMA_TASK_TIMEZONE`: timezone for scheduled tasks
+- `NAIMA_UI_DIR`: UI directory, default `./internal/httpapi/ui`
+- `NAIMA_TOOL_PROMPTS_DIR`: tool prompt directory, default `./internal/tools`
 
-```sh
-curl -sS -X POST "http://localhost:8080/api/memory/reset" \
-	-H "Authorization: Bearer $NAIMA_API_TOKEN"
-```
+See [.env.example](/Users/aw4y/dev/naima/.env.example) for the full template.
 
-Get current Memorya runtime status:
-
-```sh
-curl -sS "http://localhost:8080/api/memory/status" \
-	-H "Authorization: Bearer $NAIMA_API_TOKEN"
-```
-
-## Options
+## Command line
 
 ```sh
 go run . -name "Naima"
 ```
-
-## Conversation memory
-
-This project uses [Memorya](https://github.com/rehacktive/memorya) to keep the
-active conversation context in memory and persist messages to PostgreSQL with
-pgvector.
-
-Optional environment variables:
-
-- `NAIMA_TELEGRAM_STREAM`: enable Telegram draft streaming via
-  `sendMessageDraft` (`true`/`1`/`yes`/`on`). Default `false` (normal
-  `sendMessage` only).
-- `NAIMA_TRANSCRIPTION_MODEL`: OpenAI transcription model for Telegram audio
-  inputs (default `whisper-1`).
-- `NAIMA_TTS_MODEL`: OpenAI speech model for Telegram voice replies (default
-  `tts-1`; allowed: `tts-1`, `tts-1-hd`, `canary-tts`).
-- `NAIMA_TTS_VOICE`: OpenAI TTS voice (default `alloy`; allowed: `alloy`,
-  `echo`, `fable`, `onyx`, `nova`, `shimmer`).
-- `NAIMA_TTS_FORMAT`: OpenAI speech response format (default `mp3`; allowed:
-  `mp3`, `opus`, `aac`, `flac`, `wav`, `pcm`).
-- `NAIMA_MEMORY_MAX_CONTEXT`: max number of active context messages kept in
-  Memorya (default `20`).
-- `NAIMA_MEMORY_SUMMARY_TIMEOUT_MS`: timeout for LLM-based Memorya summarizer
-  calls in milliseconds (default `8000`).
-- `NAIMA_PGVECTOR_DSN`: PostgreSQL DSN for pgvector storage
-  (default `postgres://naima:naima@localhost:5432/naima?sslmode=disable`).
-- `NAIMA_PGVECTOR_SEARCH_LIMIT`: max related messages fetched by vector search
-  (default `5`).
-- `NAIMA_PGVECTOR_EMBEDDING_DIMS`: embedding vector dimensions for pgvector
-  indexing. Set to your model dimension (for example `1536`). Use `0` to skip
-  ivfflat index creation (default `0`).
-- `NAIMA_SEARX_URL`: local Searx base URL used by the `web_search` tool
-  (default `http://localhost:8081`).
-- `NAIMA_TIKA_URL`: optional Tika Serve base URL used by PKB URL
-  ingestion to extract markdown from webpages (for Docker Compose:
-  `http://tika:9998`).
-- `NAIMA_TIKA_ALLOW_FALLBACK`: when `true`, PKB URL ingestion falls back to
-  plain text extraction if Tika fails; when `false`, ingestion fails
-  immediately instead (default `true`).
-- `NAIMA_TIKA_FILE_TIMEOUT_MS`: timeout in milliseconds for Tika file
-  ingestion via the web UI upload flow (default `180000`).
-- `NAIMA_PKB_INGEST_MODE`: PKB URL ingestion strategy. Supported values:
-  `hybrid` (default), `tika`, `playwright`, `fetch`.
-  `hybrid` combines all available extractors and stores cleaned markdown.
-- `NAIMA_PKB_UPLOAD_DIR`: local directory where uploaded PKB files are stored
-  before/after Tika processing (default `./data/pkb_uploads`).
-- `NAIMA_PLAYWRIGHT_HEADLESS`: run Playwright in headless mode (`true`/`false`,
-  default `true`).
-- `NAIMA_PLAYWRIGHT_TIMEOUT_MS`: Playwright navigation/action timeout in
-  milliseconds (default `30000`).
-- `NAIMA_TASK_TIMEZONE`: timezone used for cron interpretation (default `UTC`).
-- `NAIMA_UI_DIR`: directory containing `index.html` for the built-in web UI
-  (default `./internal/httpapi/ui`).
-- `NAIMA_TOOL_PROMPTS_DIR`: directory containing per-tool prompt files
-  (`<tool_name>.md`) used for dynamic tool guidance injection
-  (default `./internal/tools`).
-
-Notes:
-
-- Memorya active context starts empty on every process restart.
-- In Telegram, send `/new` or `/reset` to clear the current Memorya context.
-- Telegram draft streaming is optional and disabled by default.
-- On each new incoming message, Naima computes embeddings before storing it in Memorya.
-- Memorya uses an LLM summarizer to compress older context when the in-memory
-  context exceeds `NAIMA_MEMORY_MAX_CONTEXT`.
-- Compaction policy: when active context reaches max size, Naima compacts
-  memory to `pinned messages + one summary message` (so size becomes `1` if
-  there are no pinned messages).
-- The web UI includes a collapsible Memory panel (between Tools and Operations)
-  showing Memorya `GetStatus()` fields.
-- Scheduled tasks are persisted in PostgreSQL (`scheduled_tasks`) and restored
-  automatically on restart.
-- `docker/searxng/settings.yml` is mounted into the SearxNG container and
-  enables `json` output so the `web_search` tool can parse results.
