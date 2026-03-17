@@ -105,7 +105,7 @@ func main() {
 		tools.NewWeatherTool(),
 		tools.NewWebSearchTool(searxURL()),
 		tools.NewNewsDigestTool(searxURL()),
-		tools.NewPersonalKnowledgeBaseTool(pkbStorage),
+		tools.NewPersonalKnowledgeBaseTool(pkbStorage, pkbIngestConfig()),
 		tools.NewPlaywrightTool(playwrightHeadless(), envInt("NAIMA_PLAYWRIGHT_TIMEOUT_MS", 30000)),
 		tools.NewTaskSchedulerTool(taskManager),
 		tools.NewLongMemoryTool(client, llmConfig.Model, llmConfig.EmbeddingModel, memStore),
@@ -186,6 +186,36 @@ func searxURL() string {
 	}
 
 	return "http://localhost:8081"
+}
+
+func doclingURL() string {
+	if p := strings.TrimSpace(os.Getenv("NAIMA_DOCLING_URL")); p != "" {
+		return p
+	}
+
+	return ""
+}
+
+func doclingAllowFallback() bool {
+	raw := strings.ToLower(strings.TrimSpace(os.Getenv("NAIMA_DOCLING_ALLOW_FALLBACK")))
+	switch raw {
+	case "", "1", "true", "yes", "on":
+		return true
+	case "0", "false", "no", "off":
+		return false
+	default:
+		return true
+	}
+}
+
+func pkbIngestConfig() pkb.IngestConfig {
+	return pkb.IngestConfig{
+		Mode:                strings.TrimSpace(os.Getenv("NAIMA_PKB_INGEST_MODE")),
+		DoclingURL:          doclingURL(),
+		AllowFallback:       doclingAllowFallback(),
+		PlaywrightHeadless:  playwrightHeadless(),
+		PlaywrightTimeoutMS: envInt("NAIMA_PLAYWRIGHT_TIMEOUT_MS", 30000),
+	}
 }
 
 func promptPath() string {

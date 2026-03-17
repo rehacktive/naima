@@ -4,32 +4,18 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
-	"net"
 	"net/http"
-	"net/netip"
-	"net/url"
-	"regexp"
 	"strings"
 	"time"
+
+	log "github.com/sirupsen/logrus"
 
 	"naima/internal/pkb"
 )
 
 const (
 	defaultPKBToolTimeout = 15 * time.Second
-	maxFetchedContentSize = 2 * 1024 * 1024
-	maxStoredContentRunes = 20000
-)
-
-var (
-	reScriptBlock = regexp.MustCompile(`(?is)<script[^>]*>.*?</script>`)
-	reStyleBlock  = regexp.MustCompile(`(?is)<style[^>]*>.*?</style>`)
-	reHTMLTags    = regexp.MustCompile(`(?is)<[^>]+>`)
-	reMultiSpace  = regexp.MustCompile(`\s+`)
-	reHTMLTitle   = regexp.MustCompile(`(?is)<title[^>]*>(.*?)</title>`)
-
-	blockedIPv4CGNAT = netip.MustParsePrefix("100.64.0.0/10")
+	maxStoredContentRunes = pkb.MaxStoredContentRunes
 )
 
 type PKBStorage interface {
@@ -45,28 +31,31 @@ type PKBStorage interface {
 }
 
 type PersonalKnowledgeBaseTool struct {
-	store  PKBStorage
-	client *http.Client
+	store     PKBStorage
+	client    *http.Client
+	ingestCfg pkb.IngestConfig
 }
 
 type pkbParams struct {
-	Operation  string `json:"operation"`
-	TopicID    int64  `json:"topic_id,omitempty"`
-	Topic      string `json:"topic,omitempty"`
-	DocumentID int64  `json:"document_id,omitempty"`
-	Title      string `json:"title,omitempty"`
-	URL        string `json:"url,omitempty"`
-	Note       string `json:"note,omitempty"`
-	Content    string `json:"content,omitempty"`
-	Timeframe  string `json:"timeframe,omitempty"`
-	Since      string `json:"since,omitempty"`
-	Until      string `json:"until,omitempty"`
+	Operation    string `json:"operation"`
+	TopicID      int64  `json:"topic_id,omitempty"`
+	Topic        string `json:"topic,omitempty"`
+	DocumentID   int64  `json:"document_id,omitempty"`
+	Title        string `json:"title,omitempty"`
+	URL          string `json:"url,omitempty"`
+	Note         string `json:"note,omitempty"`
+	Content      string `json:"content,omitempty"`
+	IngestMethod string `json:"ingest_method,omitempty"`
+	Timeframe    string `json:"timeframe,omitempty"`
+	Since        string `json:"since,omitempty"`
+	Until        string `json:"until,omitempty"`
 }
 
-func NewPersonalKnowledgeBaseTool(store PKBStorage) Tool {
+func NewPersonalKnowledgeBaseTool(store PKBStorage, ingestCfg pkb.IngestConfig) Tool {
 	return &PersonalKnowledgeBaseTool{
-		store:  store,
-		client: &http.Client{Timeout: defaultPKBToolTimeout},
+		store:     store,
+		client:    &http.Client{Timeout: defaultPKBToolTimeout},
+		ingestCfg: ingestCfg,
 	}
 }
 
@@ -152,19 +141,24 @@ func (t *PersonalKnowledgeBaseTool) GetFunction() func(params string) string {
 
 			kind := "note"
 			sourceURL := ""
+			ingestMethod := ""
 			if trimmedURL != "" {
 				kind = "url"
 				sourceURL = trimmedURL
-				fetchedTitle, fetchedContent, err := t.fetchURLContent(ctx, trimmedURL)
+				ingested, err := pkb.IngestURLContent(ctx, t.client, t.ingestCfg, trimmedURL)
 				if err != nil {
 					return errorJSON(err.Error())
 				}
+				if ingested.FallbackNote != "" {
+					log.Warnf("[pkb] docling failed for tool url=%s fallback=%s", trimmedURL, ingested.FallbackNote)
+				}
 				if title == "" {
-					title = fetchedTitle
+					title = ingested.Title
 				}
 				if content == "" {
-					content = fetchedContent
+					content = ingested.Content
 				}
+				ingestMethod = ingested.Method
 			}
 			if note != "" {
 				if content != "" {
@@ -172,12 +166,17 @@ func (t *PersonalKnowledgeBaseTool) GetFunction() func(params string) string {
 				} else {
 					content = note
 				}
+				if kind == "note" {
+					ingestMethod = "manual_note"
+				} else if ingestMethod != "" {
+					ingestMethod += "+note"
+				}
 			}
 			content = strings.TrimSpace(content)
 			if content == "" {
 				return errorJSON("note or url is required")
 			}
-			content = truncateRunes(content, maxStoredContentRunes)
+			content = pkb.TruncateRunes(content, maxStoredContentRunes)
 			if title == "" {
 				if kind == "url" {
 					title = sourceURL
@@ -187,11 +186,12 @@ func (t *PersonalKnowledgeBaseTool) GetFunction() func(params string) string {
 			}
 
 			doc, err := t.store.CreateDocument(ctx, pkb.CreateDocumentRequest{
-				TopicID:   in.TopicID,
-				Kind:      kind,
-				Title:     title,
-				SourceURL: sourceURL,
-				Content:   content,
+				TopicID:      in.TopicID,
+				Kind:         kind,
+				Title:        title,
+				SourceURL:    sourceURL,
+				IngestMethod: strings.TrimSpace(ingestMethod),
+				Content:      content,
 			})
 			if err != nil {
 				return errorJSON(err.Error())
@@ -245,7 +245,7 @@ func (t *PersonalKnowledgeBaseTool) GetFunction() func(params string) string {
 				DocumentID: in.DocumentID,
 				Title:      strings.TrimSpace(in.Title),
 				SourceURL:  strings.TrimSpace(in.URL),
-				Content:    truncateRunes(content, maxStoredContentRunes),
+				Content:    pkb.TruncateRunes(content, maxStoredContentRunes),
 			})
 			if err != nil {
 				return errorJSON(err.Error())
@@ -447,168 +447,6 @@ func formatOptionalTime(t *time.Time) string {
 		return ""
 	}
 	return t.UTC().Format(time.RFC3339)
-}
-
-func (t *PersonalKnowledgeBaseTool) fetchURLContent(ctx context.Context, rawURL string) (string, string, error) {
-	u, err := url.Parse(strings.TrimSpace(rawURL))
-	if err != nil {
-		return "", "", fmt.Errorf("invalid url: %w", err)
-	}
-	if err := validateFetchURL(ctx, u); err != nil {
-		return "", "", err
-	}
-
-	if u.Scheme != "http" && u.Scheme != "https" {
-		return "", "", fmt.Errorf("unsupported url scheme: %s", u.Scheme)
-	}
-
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
-	if err != nil {
-		return "", "", fmt.Errorf("build url request failed: %w", err)
-	}
-	req.Header.Set("User-Agent", "naima-pkb/1.0")
-
-	client := *t.client
-	client.CheckRedirect = func(redirectReq *http.Request, _ []*http.Request) error {
-		if err := validateFetchURL(redirectReq.Context(), redirectReq.URL); err != nil {
-			return err
-		}
-		return nil
-	}
-
-	resp, err := client.Do(req)
-	if err != nil {
-		return "", "", fmt.Errorf("fetch url failed: %w", err)
-	}
-	defer resp.Body.Close()
-	if resp.StatusCode < 200 || resp.StatusCode >= 300 {
-		return "", "", fmt.Errorf("fetch url returned status %d", resp.StatusCode)
-	}
-
-	body, err := io.ReadAll(io.LimitReader(resp.Body, maxFetchedContentSize+1))
-	if err != nil {
-		return "", "", fmt.Errorf("read url content failed: %w", err)
-	}
-	if len(body) > maxFetchedContentSize {
-		return "", "", fmt.Errorf("url content too large (max %d bytes)", maxFetchedContentSize)
-	}
-
-	raw := string(body)
-	title := extractHTMLTitle(raw)
-	contentType := strings.ToLower(strings.TrimSpace(resp.Header.Get("Content-Type")))
-	content := raw
-	if strings.Contains(contentType, "text/html") || strings.Contains(content, "<html") {
-		content = htmlToText(content)
-	}
-	content = strings.TrimSpace(content)
-	if content == "" {
-		return "", "", fmt.Errorf("no textual content extracted from url")
-	}
-	content = truncateRunes(content, maxStoredContentRunes)
-	return title, content, nil
-}
-
-func validateFetchURL(ctx context.Context, u *url.URL) error {
-	if u == nil {
-		return fmt.Errorf("invalid url")
-	}
-	scheme := strings.ToLower(strings.TrimSpace(u.Scheme))
-	if scheme != "http" && scheme != "https" {
-		return fmt.Errorf("unsupported url scheme: %s", u.Scheme)
-	}
-	if u.User != nil {
-		return fmt.Errorf("url userinfo is not allowed")
-	}
-	host := strings.TrimSpace(u.Hostname())
-	if host == "" {
-		return fmt.Errorf("url host is required")
-	}
-	if isBlockedHostname(host) {
-		return fmt.Errorf("blocked host")
-	}
-
-	if ip := net.ParseIP(host); ip != nil {
-		if isBlockedIP(ip) {
-			return fmt.Errorf("blocked target ip")
-		}
-		return nil
-	}
-
-	resolved, err := net.DefaultResolver.LookupIPAddr(ctx, host)
-	if err != nil {
-		return fmt.Errorf("resolve host failed: %w", err)
-	}
-	if len(resolved) == 0 {
-		return fmt.Errorf("resolve host failed: no ips")
-	}
-	for _, addr := range resolved {
-		if isBlockedIP(addr.IP) {
-			return fmt.Errorf("blocked target ip")
-		}
-	}
-
-	return nil
-}
-
-func isBlockedHostname(host string) bool {
-	h := strings.ToLower(strings.TrimSpace(host))
-	if h == "" {
-		return true
-	}
-	if h == "localhost" || strings.HasSuffix(h, ".localhost") {
-		return true
-	}
-	if strings.HasSuffix(h, ".local") || strings.HasSuffix(h, ".internal") {
-		return true
-	}
-	return false
-}
-
-func isBlockedIP(ip net.IP) bool {
-	if ip == nil {
-		return true
-	}
-	if ip.IsLoopback() || ip.IsPrivate() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() {
-		return true
-	}
-	if ip.IsMulticast() || ip.IsUnspecified() {
-		return true
-	}
-
-	if addr, ok := netip.AddrFromSlice(ip); ok {
-		if blockedIPv4CGNAT.Contains(addr.Unmap()) {
-			return true
-		}
-	}
-
-	return false
-}
-
-func extractHTMLTitle(raw string) string {
-	m := reHTMLTitle.FindStringSubmatch(raw)
-	if len(m) < 2 {
-		return ""
-	}
-	return strings.TrimSpace(htmlToText(m[1]))
-}
-
-func htmlToText(raw string) string {
-	out := reScriptBlock.ReplaceAllString(raw, " ")
-	out = reStyleBlock.ReplaceAllString(out, " ")
-	out = reHTMLTags.ReplaceAllString(out, " ")
-	out = reMultiSpace.ReplaceAllString(out, " ")
-	return strings.TrimSpace(out)
-}
-
-func truncateRunes(v string, max int) string {
-	if max <= 0 {
-		return v
-	}
-	r := []rune(v)
-	if len(r) <= max {
-		return v
-	}
-	return string(r[:max]) + "..."
 }
 
 func jsonUnmarshal(raw string, out any) error {

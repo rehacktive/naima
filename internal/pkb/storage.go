@@ -26,10 +26,12 @@ CREATE TABLE IF NOT EXISTS pkb_documents (
 	kind TEXT NOT NULL,
 	title TEXT NOT NULL DEFAULT '',
 	source_url TEXT NOT NULL DEFAULT '',
+	ingest_method TEXT NOT NULL DEFAULT '',
 	content TEXT NOT NULL,
 	created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
 	updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
+ALTER TABLE pkb_documents ADD COLUMN IF NOT EXISTS ingest_method TEXT NOT NULL DEFAULT '';
 CREATE INDEX IF NOT EXISTS idx_pkb_documents_topic_id ON pkb_documents(topic_id);
 CREATE INDEX IF NOT EXISTS idx_pkb_documents_kind ON pkb_documents(kind);
 `
@@ -48,30 +50,33 @@ type Topic struct {
 }
 
 type Document struct {
-	ID         int64      `json:"id"`
-	TopicID    int64      `json:"topic_id"`
-	TopicTitle string     `json:"topic_title,omitempty"`
-	Kind       string     `json:"kind"`
-	Title      string     `json:"title"`
-	SourceURL  string     `json:"source_url,omitempty"`
-	Content    string     `json:"content"`
-	CreatedAt  *time.Time `json:"created_at,omitempty"`
-	UpdatedAt  *time.Time `json:"updated_at,omitempty"`
+	ID           int64      `json:"id"`
+	TopicID      int64      `json:"topic_id"`
+	TopicTitle   string     `json:"topic_title,omitempty"`
+	Kind         string     `json:"kind"`
+	Title        string     `json:"title"`
+	SourceURL    string     `json:"source_url,omitempty"`
+	IngestMethod string     `json:"ingest_method,omitempty"`
+	Content      string     `json:"content"`
+	CreatedAt    *time.Time `json:"created_at,omitempty"`
+	UpdatedAt    *time.Time `json:"updated_at,omitempty"`
 }
 
 type CreateDocumentRequest struct {
-	TopicID   int64
-	Kind      string
-	Title     string
-	SourceURL string
-	Content   string
+	TopicID      int64
+	Kind         string
+	Title        string
+	SourceURL    string
+	IngestMethod string
+	Content      string
 }
 
 type UpdateDocumentRequest struct {
-	DocumentID int64
-	Title      string
-	SourceURL  string
-	Content    string
+	DocumentID   int64
+	Title        string
+	SourceURL    string
+	IngestMethod string
+	Content      string
 }
 
 type ListDocumentsRangeRequest struct {
@@ -210,8 +215,8 @@ func (s *Storage) CreateDocument(ctx context.Context, req CreateDocumentRequest)
 	if req.Kind == "" {
 		req.Kind = "note"
 	}
-	if req.Kind != "note" && req.Kind != "url" {
-		return Document{}, errors.New("kind must be note or url")
+	if req.Kind != "note" && req.Kind != "url" && req.Kind != "file" {
+		return Document{}, errors.New("kind must be note, url or file")
 	}
 
 	req.Title = strings.TrimSpace(req.Title)
@@ -220,18 +225,18 @@ func (s *Storage) CreateDocument(ctx context.Context, req CreateDocumentRequest)
 	if req.Content == "" {
 		return Document{}, errors.New("content is required")
 	}
-	if req.Kind == "url" && req.SourceURL == "" {
-		return Document{}, errors.New("source_url is required for kind=url")
+	if (req.Kind == "url" || req.Kind == "file") && req.SourceURL == "" {
+		return Document{}, errors.New("source_url is required for kind=url/file")
 	}
 
 	query := `
-INSERT INTO pkb_documents(topic_id, kind, title, source_url, content)
-VALUES ($1,$2,$3,$4,$5)
-RETURNING id, topic_id, kind, title, source_url, content, created_at, updated_at;
+INSERT INTO pkb_documents(topic_id, kind, title, source_url, ingest_method, content)
+VALUES ($1,$2,$3,$4,$5,$6)
+RETURNING id, topic_id, kind, title, source_url, ingest_method, content, created_at, updated_at;
 `
 	var d Document
-	if err := s.pool.QueryRow(ctx, query, req.TopicID, req.Kind, req.Title, req.SourceURL, req.Content).Scan(
-		&d.ID, &d.TopicID, &d.Kind, &d.Title, &d.SourceURL, &d.Content, &d.CreatedAt, &d.UpdatedAt,
+	if err := s.pool.QueryRow(ctx, query, req.TopicID, req.Kind, req.Title, req.SourceURL, strings.TrimSpace(req.IngestMethod), req.Content).Scan(
+		&d.ID, &d.TopicID, &d.Kind, &d.Title, &d.SourceURL, &d.IngestMethod, &d.Content, &d.CreatedAt, &d.UpdatedAt,
 	); err != nil {
 		if isForeignKeyViolation(err) {
 			return Document{}, fmt.Errorf("topic not found: %d", req.TopicID)
@@ -247,7 +252,7 @@ func (s *Storage) ListDocuments(ctx context.Context, topicID int64) ([]Document,
 	}
 
 	query := `
-SELECT id, topic_id, kind, title, source_url, content, created_at, updated_at
+SELECT id, topic_id, kind, title, source_url, ingest_method, content, created_at, updated_at
 FROM pkb_documents
 WHERE topic_id = $1
 ORDER BY created_at DESC, id DESC;
@@ -261,7 +266,7 @@ ORDER BY created_at DESC, id DESC;
 	out := make([]Document, 0)
 	for rows.Next() {
 		var d Document
-		if err := rows.Scan(&d.ID, &d.TopicID, &d.Kind, &d.Title, &d.SourceURL, &d.Content, &d.CreatedAt, &d.UpdatedAt); err != nil {
+		if err := rows.Scan(&d.ID, &d.TopicID, &d.Kind, &d.Title, &d.SourceURL, &d.IngestMethod, &d.Content, &d.CreatedAt, &d.UpdatedAt); err != nil {
 			return nil, fmt.Errorf("scan document failed: %w", err)
 		}
 		out = append(out, d)
@@ -285,13 +290,13 @@ func (s *Storage) UpdateDocument(ctx context.Context, req UpdateDocumentRequest)
 
 	query := `
 UPDATE pkb_documents
-SET title = $2, source_url = $3, content = $4, updated_at = NOW()
+SET title = $2, source_url = $3, ingest_method = CASE WHEN $4 = '' THEN ingest_method ELSE $4 END, content = $5, updated_at = NOW()
 WHERE id = $1
-RETURNING id, topic_id, kind, title, source_url, content, created_at, updated_at;
+RETURNING id, topic_id, kind, title, source_url, ingest_method, content, created_at, updated_at;
 `
 	var d Document
-	if err := s.pool.QueryRow(ctx, query, req.DocumentID, req.Title, req.SourceURL, req.Content).Scan(
-		&d.ID, &d.TopicID, &d.Kind, &d.Title, &d.SourceURL, &d.Content, &d.CreatedAt, &d.UpdatedAt,
+	if err := s.pool.QueryRow(ctx, query, req.DocumentID, req.Title, req.SourceURL, strings.TrimSpace(req.IngestMethod), req.Content).Scan(
+		&d.ID, &d.TopicID, &d.Kind, &d.Title, &d.SourceURL, &d.IngestMethod, &d.Content, &d.CreatedAt, &d.UpdatedAt,
 	); err != nil {
 		if strings.Contains(err.Error(), "no rows") {
 			return Document{}, fmt.Errorf("document not found: %d", req.DocumentID)
@@ -325,7 +330,7 @@ func (s *Storage) ListDocumentsByTimeRange(ctx context.Context, req ListDocument
 	}
 
 	query := `
-SELECT d.id, d.topic_id, t.title, d.kind, d.title, d.source_url, d.content, d.created_at, d.updated_at
+SELECT d.id, d.topic_id, t.title, d.kind, d.title, d.source_url, d.ingest_method, d.content, d.created_at, d.updated_at
 FROM pkb_documents d
 JOIN pkb_topics t ON t.id = d.topic_id
 WHERE d.created_at >= $1
@@ -342,7 +347,7 @@ ORDER BY d.created_at DESC, d.id DESC;
 	out := make([]Document, 0)
 	for rows.Next() {
 		var d Document
-		if err := rows.Scan(&d.ID, &d.TopicID, &d.TopicTitle, &d.Kind, &d.Title, &d.SourceURL, &d.Content, &d.CreatedAt, &d.UpdatedAt); err != nil {
+		if err := rows.Scan(&d.ID, &d.TopicID, &d.TopicTitle, &d.Kind, &d.Title, &d.SourceURL, &d.IngestMethod, &d.Content, &d.CreatedAt, &d.UpdatedAt); err != nil {
 			return nil, fmt.Errorf("scan ranged document failed: %w", err)
 		}
 		out = append(out, d)

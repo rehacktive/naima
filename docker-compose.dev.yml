@@ -1,0 +1,61 @@
+services:
+  pgvector:
+    image: pgvector/pgvector:pg16
+    container_name: naima-pgvector-dev
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: naima
+      POSTGRES_PASSWORD: naima
+      POSTGRES_DB: naima
+    ports:
+      - "5432:5432"
+    volumes:
+      - pgvector_dev_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U naima -d naima"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  redis:
+    image: valkey/valkey:8-alpine
+    container_name: naima-redis-dev
+    restart: unless-stopped
+    command: ["valkey-server", "--save", "", "--appendonly", "no"]
+    ports:
+      - "6379:6379"
+    healthcheck:
+      test: ["CMD", "valkey-cli", "ping"]
+      interval: 5s
+      timeout: 5s
+      retries: 20
+
+  searxng:
+    image: searxng/searxng:latest
+    container_name: naima-searxng-dev
+    restart: unless-stopped
+    depends_on:
+      redis:
+        condition: service_healthy
+    environment:
+      SEARXNG_REDIS_URL: redis://redis:6379/0
+      SEARXNG_URL: http://localhost:8081/
+    ports:
+      - "8081:8080"
+    volumes:
+      - ./docker/searxng/settings.yml:/etc/searxng/settings.yml:ro
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O - http://127.0.0.1:8080/ >/dev/null 2>&1 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+
+  docling:
+    image: quay.io/docling-project/docling-serve-cpu
+    container_name: naima-docling-dev
+    restart: unless-stopped
+    ports:
+      - "5001:5001"
+
+volumes:
+  pgvector_dev_data:

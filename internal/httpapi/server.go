@@ -8,8 +8,11 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"os"
+	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -47,9 +50,17 @@ type toolUpdateRequest struct {
 	Enabled bool   `json:"enabled"`
 }
 
+type pkbIngestRequest struct {
+	TopicID  int64  `json:"topic_id,omitempty"`
+	NewTopic string `json:"new_topic,omitempty"`
+	URL      string `json:"url"`
+}
+
 type pkbReader interface {
 	ListTopics(ctx context.Context) ([]pkb.Topic, error)
 	ListDocuments(ctx context.Context, topicID int64) ([]pkb.Document, error)
+	CreateTopic(ctx context.Context, title string) (pkb.Topic, error)
+	CreateDocument(ctx context.Context, req pkb.CreateDocumentRequest) (pkb.Document, error)
 }
 
 func IsEnabled() bool {
@@ -61,6 +72,7 @@ func RunServer(ctx context.Context, agentInstance *agent.Agent, pkbStore pkbRead
 	if err != nil {
 		return err
 	}
+	ingestCfg := pkbIngestConfigFromEnv()
 
 	mux := http.NewServeMux()
 	mux.Handle("/ui/", http.StripPrefix("/ui/", http.FileServer(http.Dir(uiDir()))))
@@ -288,6 +300,178 @@ func RunServer(ctx context.Context, agentInstance *agent.Agent, pkbStore pkbRead
 			"count":  len(out),
 		})
 	})
+	mux.HandleFunc("/api/pkb/ingest", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+			return
+		}
+		if !authorizeRequest(r, cfg.Token) {
+			writeError(w, http.StatusUnauthorized, "unauthorized")
+			return
+		}
+		if pkbStore == nil {
+			writeError(w, http.StatusServiceUnavailable, "personal knowledge base is not configured")
+			return
+		}
+
+		var req pkbIngestRequest
+		decoder := json.NewDecoder(r.Body)
+		decoder.DisallowUnknownFields()
+		if err := decoder.Decode(&req); err != nil {
+			writeError(w, http.StatusBadRequest, "invalid request body")
+			return
+		}
+		req.URL = strings.TrimSpace(req.URL)
+		req.NewTopic = strings.TrimSpace(req.NewTopic)
+		if req.URL == "" {
+			writeError(w, http.StatusBadRequest, "url is required")
+			return
+		}
+		if req.TopicID <= 0 && req.NewTopic == "" {
+			writeError(w, http.StatusBadRequest, "topic_id or new_topic is required")
+			return
+		}
+
+		topicID := req.TopicID
+		var topic pkb.Topic
+		if req.NewTopic != "" {
+			created, err := pkbStore.CreateTopic(r.Context(), req.NewTopic)
+			if err != nil {
+				writeError(w, http.StatusBadRequest, err.Error())
+				return
+			}
+			topic = created
+			topicID = created.ID
+		}
+
+		ingested, err := pkb.IngestURLContent(r.Context(), &http.Client{Timeout: 20 * time.Second}, ingestCfg, req.URL)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		if ingested.FallbackNote != "" {
+			log.Warnf("[http] pkb ingest fell back to direct text url=%s reason=%s", req.URL, ingested.FallbackNote)
+		}
+		title := ingested.Title
+		if title == "" {
+			title = req.URL
+		}
+		doc, err := pkbStore.CreateDocument(r.Context(), pkb.CreateDocumentRequest{
+			TopicID:      topicID,
+			Kind:         "url",
+			Title:        title,
+			SourceURL:    req.URL,
+			IngestMethod: ingested.Method,
+			Content:      ingested.Content,
+		})
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{
+			"topic":         topic,
+			"topic_id":      topicID,
+			"document":      doc,
+			"ingest_method": ingested.Method,
+			"fallback_note": ingested.FallbackNote,
+		})
+	})
+	mux.HandleFunc("/api/pkb/ingest/file", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+			return
+		}
+		if !authorizeRequest(r, cfg.Token) {
+			writeError(w, http.StatusUnauthorized, "unauthorized")
+			return
+		}
+		if pkbStore == nil {
+			writeError(w, http.StatusServiceUnavailable, "personal knowledge base is not configured")
+			return
+		}
+		if strings.TrimSpace(ingestCfg.DoclingURL) == "" {
+			writeError(w, http.StatusServiceUnavailable, "docling is not configured for file ingestion")
+			return
+		}
+		if err := r.ParseMultipartForm(32 << 20); err != nil {
+			writeError(w, http.StatusBadRequest, "invalid multipart form")
+			return
+		}
+		topicID, _ := strconv.ParseInt(strings.TrimSpace(r.FormValue("topic_id")), 10, 64)
+		newTopic := strings.TrimSpace(r.FormValue("new_topic"))
+		if topicID <= 0 && newTopic == "" {
+			writeError(w, http.StatusBadRequest, "topic_id or new_topic is required")
+			return
+		}
+		file, header, err := r.FormFile("file")
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "file is required")
+			return
+		}
+		defer file.Close()
+
+		filename := strings.TrimSpace(header.Filename)
+		if filename == "" {
+			writeError(w, http.StatusBadRequest, "file name is required")
+			return
+		}
+		data, err := io.ReadAll(io.LimitReader(file, 25<<20))
+		if err != nil {
+			writeError(w, http.StatusBadRequest, "read file failed")
+			return
+		}
+		if len(data) == 0 {
+			writeError(w, http.StatusBadRequest, "file is empty")
+			return
+		}
+
+		if err := os.MkdirAll(pkbUploadDir(), 0o750); err != nil {
+			writeError(w, http.StatusInternalServerError, "prepare upload dir failed")
+			return
+		}
+		storedName := time.Now().UTC().Format("20060102T150405") + "_" + filepath.Base(filename)
+		storedPath := filepath.Join(pkbUploadDir(), storedName)
+		if err := os.WriteFile(storedPath, data, 0o600); err != nil {
+			writeError(w, http.StatusInternalServerError, "save uploaded file failed")
+			return
+		}
+
+		var topic pkb.Topic
+		if newTopic != "" {
+			created, err := pkbStore.CreateTopic(r.Context(), newTopic)
+			if err != nil {
+				writeError(w, http.StatusBadRequest, err.Error())
+				return
+			}
+			topic = created
+			topicID = created.ID
+		}
+
+		ingested, err := pkb.IngestFileContent(r.Context(), &http.Client{Timeout: time.Duration(envInt("NAIMA_DOCLING_FILE_TIMEOUT_MS", 180000)) * time.Millisecond}, ingestCfg.DoclingURL, filename, data)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		doc, err := pkbStore.CreateDocument(r.Context(), pkb.CreateDocumentRequest{
+			TopicID:      topicID,
+			Kind:         "file",
+			Title:        ingested.Title,
+			SourceURL:    storedPath,
+			IngestMethod: ingested.Method,
+			Content:      ingested.Content,
+		})
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{
+			"topic":         topic,
+			"topic_id":      topicID,
+			"document":      doc,
+			"stored_path":   storedPath,
+			"ingest_method": ingested.Method,
+		})
+	})
 
 	srv := &http.Server{
 		Addr:              cfg.Addr,
@@ -346,6 +530,61 @@ func loadConfig() (config, error) {
 		UIBasicAuthUser: uiUser,
 		UIBasicAuthPass: uiPass,
 	}, nil
+}
+
+func doclingAllowFallback() bool {
+	raw := strings.ToLower(strings.TrimSpace(os.Getenv("NAIMA_DOCLING_ALLOW_FALLBACK")))
+	switch raw {
+	case "", "1", "true", "yes", "on":
+		return true
+	case "0", "false", "no", "off":
+		return false
+	default:
+		return true
+	}
+}
+
+func pkbIngestConfigFromEnv() pkb.IngestConfig {
+	return pkb.IngestConfig{
+		Mode:                strings.TrimSpace(os.Getenv("NAIMA_PKB_INGEST_MODE")),
+		DoclingURL:          strings.TrimSpace(os.Getenv("NAIMA_DOCLING_URL")),
+		AllowFallback:       doclingAllowFallback(),
+		PlaywrightHeadless:  envBool("NAIMA_PLAYWRIGHT_HEADLESS", true),
+		PlaywrightTimeoutMS: envInt("NAIMA_PLAYWRIGHT_TIMEOUT_MS", 30000),
+	}
+}
+
+func pkbUploadDir() string {
+	if p := strings.TrimSpace(os.Getenv("NAIMA_PKB_UPLOAD_DIR")); p != "" {
+		return p
+	}
+	return filepath.Join(".", "data", "pkb_uploads")
+}
+
+func envInt(name string, fallback int) int {
+	raw := strings.TrimSpace(os.Getenv(name))
+	if raw == "" {
+		return fallback
+	}
+	v, err := strconv.Atoi(raw)
+	if err != nil {
+		return fallback
+	}
+	return v
+}
+
+func envBool(name string, fallback bool) bool {
+	raw := strings.ToLower(strings.TrimSpace(os.Getenv(name)))
+	switch raw {
+	case "":
+		return fallback
+	case "1", "true", "yes", "on":
+		return true
+	case "0", "false", "no", "off":
+		return false
+	default:
+		return fallback
+	}
 }
 
 func authorizeRequest(r *http.Request, token string) bool {

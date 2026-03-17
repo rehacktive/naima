@@ -10,11 +10,14 @@ services:
         condition: service_healthy
       searxng:
         condition: service_healthy
+      docling:
+        condition: service_started
     env_file:
       - .env
     environment:
       NAIMA_PGVECTOR_DSN: postgres://naima:naima@pgvector:5432/naima?sslmode=disable
       NAIMA_SEARX_URL: http://searxng:8080
+      NAIMA_DOCLING_URL: http://docling:5001
       NAIMA_SESSION_FILE: /data/.naima_session.json
     volumes:
       - naima_data:/data
@@ -79,6 +82,11 @@ services:
       interval: 10s
       timeout: 5s
       retries: 20
+
+  docling:
+    image: quay.io/docling-project/docling-serve-cpu
+    container_name: naima-docling
+    restart: unless-stopped
 
 volumes:
   pgvector_data:

@@ -496,10 +496,20 @@
       background: var(--ops-bg);
       padding: 10px;
       display: grid;
-      grid-template-columns: 1fr auto;
+      grid-template-columns: auto 1fr auto;
       gap: 8px;
       align-items: end;
       flex-shrink: 0;
+    }
+    .composer-action {
+      height: 44px;
+      min-width: 82px;
+      border: 1px solid var(--border);
+      border-radius: 10px;
+      background: var(--surface-2);
+      color: var(--text);
+      font-weight: 600;
+      cursor: pointer;
     }
     textarea {
       width: 100%;
@@ -691,7 +701,7 @@
       overflow-wrap: anywhere;
     }
     .pkb-content {
-      white-space: pre-wrap;
+      white-space: normal;
       line-height: 1.65;
       background: rgba(255, 255, 255, 0.02);
       border: 1px solid var(--border);
@@ -699,6 +709,49 @@
       padding: 10px;
       max-height: 38vh;
       overflow-y: auto;
+    }
+    .pkb-content h1,
+    .pkb-content h2,
+    .pkb-content h3,
+    .pkb-content h4,
+    .pkb-content h5,
+    .pkb-content h6 {
+      color: var(--text);
+      margin: 0 0 10px;
+      line-height: 1.25;
+    }
+    .pkb-content h1 { font-size: 16px; }
+    .pkb-content h2 { font-size: 14px; }
+    .pkb-content h3 { font-size: 13px; }
+    .pkb-content p {
+      margin: 0 0 8px;
+    }
+    .pkb-content ul,
+    .pkb-content ol {
+      margin: 0 0 12px 18px;
+      padding: 0;
+    }
+    .pkb-content li {
+      margin-bottom: 6px;
+    }
+    .pkb-content code {
+      background: rgba(255, 255, 255, 0.06);
+      padding: 1px 4px;
+      border-radius: 4px;
+    }
+    .pkb-content pre {
+      margin: 0 0 12px;
+      padding: 10px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      overflow-x: auto;
+      background: rgba(0, 0, 0, 0.2);
+    }
+    .pkb-content blockquote {
+      margin: 0 0 12px;
+      padding-left: 10px;
+      border-left: 2px solid var(--border);
+      color: var(--muted);
     }
     .pkb-doc-list {
       display: flex;
@@ -709,6 +762,98 @@
       color: var(--muted);
       font-size: 10px;
       line-height: 1.4;
+    }
+    .dialog-backdrop {
+      position: fixed;
+      inset: 0;
+      background: rgba(4, 8, 12, 0.74);
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      z-index: 30;
+      padding: 20px;
+    }
+    .dialog {
+      width: min(520px, 100%);
+      border: 1px solid var(--border);
+      border-radius: 14px;
+      background: var(--panel);
+      box-shadow: 0 18px 48px rgba(0, 0, 0, 0.35);
+      padding: 14px;
+      display: flex;
+      flex-direction: column;
+      gap: 10px;
+    }
+    .dialog.is-busy {
+      opacity: 0.88;
+    }
+    .dialog-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+    }
+    .dialog-head h3 {
+      margin: 0;
+      font-size: 12px;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      color: var(--muted);
+    }
+    .dialog-close {
+      border: 1px solid var(--border);
+      background: var(--surface-2);
+      color: var(--text);
+      border-radius: 8px;
+      font-size: 10px;
+      padding: 6px 10px;
+      cursor: pointer;
+    }
+    .dialog-field {
+      display: flex;
+      flex-direction: column;
+      gap: 6px;
+    }
+    .dialog-field label {
+      font-size: 10px;
+      color: var(--muted);
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+    }
+    .dialog-field select,
+    .dialog-field input {
+      width: 100%;
+      height: 38px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      padding: 0 10px;
+      background: var(--surface);
+      color: var(--text);
+      font-size: 11px;
+    }
+    .dialog-field input[type="file"] {
+      height: auto;
+      padding: 10px;
+    }
+    .dialog-actions {
+      display: flex;
+      justify-content: flex-end;
+      gap: 8px;
+    }
+    .dialog-actions button {
+      height: 36px;
+      border: 1px solid var(--border);
+      border-radius: 8px;
+      background: var(--surface-2);
+      color: var(--text);
+      padding: 0 12px;
+      cursor: pointer;
+      font-size: 11px;
+    }
+    .dialog-status {
+      min-height: 18px;
+      font-size: 10px;
+      color: var(--muted);
     }
     @media (max-width: 900px) {
       body { overflow: auto; }
@@ -740,6 +885,7 @@
   <div class="app">
     <div id="messages" class="messages"></div>
     <div class="composer">
+      <button id="ingestBtn" class="composer-action" type="button">Ingest</button>
       <textarea id="input" placeholder="Type a message..."></textarea>
       <button id="send" class="send">Send</button>
     </div>
@@ -822,9 +968,52 @@
       </div>
     </div>
   </div>
+  <div id="ingestDialog" class="dialog-backdrop is-hidden">
+    <div class="dialog">
+      <div class="dialog-head">
+        <h3>Ingest URL</h3>
+        <button id="ingestClose" class="dialog-close" type="button">Close</button>
+      </div>
+      <div class="dialog-field">
+        <label for="ingestTopicSelect">Topic</label>
+        <select id="ingestTopicSelect">
+          <option value="">Select topic...</option>
+          <option value="__new__">Create new topic</option>
+        </select>
+      </div>
+      <div id="ingestNewTopicWrap" class="dialog-field is-hidden">
+        <label for="ingestNewTopic">New topic</label>
+        <input id="ingestNewTopic" type="text" placeholder="Topic title">
+      </div>
+      <div class="dialog-field">
+        <label for="ingestMode">Source type</label>
+        <select id="ingestMode">
+          <option value="url">URL</option>
+          <option value="file">Document</option>
+        </select>
+      </div>
+      <div id="ingestURLWrap" class="dialog-field">
+        <label for="ingestURL">URL</label>
+        <input id="ingestURL" type="url" placeholder="https://example.com/article">
+      </div>
+      <div id="ingestFileWrap" class="dialog-field is-hidden">
+        <label for="ingestFile">Document</label>
+        <input id="ingestFile" type="file" accept=".pdf,.doc,.docx,.ppt,.pptx,.txt,.md,.html,.htm">
+      </div>
+      <div class="dialog-field">
+        <label>Rule</label>
+        <div class="pkb-empty">Use either a URL or a document file, not both.</div>
+      </div>
+      <div class="dialog-actions">
+        <button id="ingestSubmit" type="button">Save</button>
+      </div>
+      <div id="ingestStatus" class="dialog-status"></div>
+    </div>
+  </div>
 
   <script src="https://unpkg.com/three@0.160.0/build/three.min.js"></script>
   <script>
+    const ingestBtnEl = document.getElementById("ingestBtn");
     const tokenEl = document.getElementById("token");
     const saveTokenBtn = document.getElementById("saveToken");
     const inputEl = document.getElementById("input");
@@ -856,6 +1045,19 @@
     const pkbStatsEl = document.getElementById("pkbStats");
     const pkbDetailEl = document.getElementById("pkbDetail");
     const pkbDocumentsEl = document.getElementById("pkbDocuments");
+    const ingestDialogEl = document.getElementById("ingestDialog");
+    const ingestDialogBoxEl = ingestDialogEl.querySelector(".dialog");
+    const ingestCloseEl = document.getElementById("ingestClose");
+    const ingestModeEl = document.getElementById("ingestMode");
+    const ingestTopicSelectEl = document.getElementById("ingestTopicSelect");
+    const ingestNewTopicWrapEl = document.getElementById("ingestNewTopicWrap");
+    const ingestNewTopicEl = document.getElementById("ingestNewTopic");
+    const ingestURLWrapEl = document.getElementById("ingestURLWrap");
+    const ingestURLEl = document.getElementById("ingestURL");
+    const ingestFileWrapEl = document.getElementById("ingestFileWrap");
+    const ingestFileEl = document.getElementById("ingestFile");
+    const ingestSubmitEl = document.getElementById("ingestSubmit");
+    const ingestStatusEl = document.getElementById("ingestStatus");
     let newConversationOnNextSend = true;
     const pkbSceneState = {
       renderer: null,
@@ -915,6 +1117,23 @@
     applyOpsCollapsed(localStorage.getItem(opsCollapsedKey) === "1");
     applyMemoryCollapsed(localStorage.getItem(memoryCollapsedKey) === "1");
     applySettingsCollapsed(localStorage.getItem(settingsCollapsedKey) === "1");
+    ingestBtnEl.addEventListener("click", openIngestDialog);
+    ingestCloseEl.addEventListener("click", closeIngestDialog);
+    ingestDialogEl.addEventListener("click", (event) => {
+      if (event.target === ingestDialogEl) {
+        closeIngestDialog();
+      }
+    });
+    ingestTopicSelectEl.addEventListener("change", () => {
+      const creating = ingestTopicSelectEl.value === "__new__";
+      ingestNewTopicWrapEl.classList.toggle("is-hidden", !creating);
+    });
+    ingestModeEl.addEventListener("change", () => {
+      const isFile = ingestModeEl.value === "file";
+      ingestURLWrapEl.classList.toggle("is-hidden", isFile);
+      ingestFileWrapEl.classList.toggle("is-hidden", !isFile);
+    });
+    ingestSubmitEl.addEventListener("click", submitIngest);
     toolsCollapseEl.addEventListener("click", () => {
       const next = !toolsListEl.classList.contains("is-hidden");
       applyToolsCollapsed(next);
@@ -993,6 +1212,12 @@
       html = html.replace(/```([\s\S]*?)```/g, (_, code) => {
         return "<pre><code>" + code.replace(/\n$/, "") + "</code></pre>";
       });
+      html = html.replace(/^######\s+(.+)$/gm, "<h6>$1</h6>");
+      html = html.replace(/^#####\s+(.+)$/gm, "<h5>$1</h5>");
+      html = html.replace(/^####\s+(.+)$/gm, "<h4>$1</h4>");
+      html = html.replace(/^###\s+(.+)$/gm, "<h3>$1</h3>");
+      html = html.replace(/^##\s+(.+)$/gm, "<h2>$1</h2>");
+      html = html.replace(/^#\s+(.+)$/gm, "<h1>$1</h1>");
       html = html.replace(/`([^`\n]+)`/g, "<code>$1</code>");
       html = html.replace(/\*\*([^*\n]+)\*\*/g, "<strong>$1</strong>");
       html = html.replace(/\*([^*\n]+)\*/g, "<em>$1</em>");
@@ -1000,8 +1225,18 @@
       html = html.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
       html = html.replace(/^&gt;\s?(.*)$/gm, "<blockquote>$1</blockquote>");
       html = html.replace(/^\s*-\s+(.*)$/gm, "<li>$1</li>");
+      html = html.replace(/^\s*\d+\.\s+(.*)$/gm, "<li>$1</li>");
       html = html.replace(/(<li>[\s\S]*?<\/li>)/g, "<ul>$1</ul>");
+      html = html.replace(/(?:^|\n)([^<\n][^\n]*)(?=\n|$)/g, (match, line) => {
+        const trimmed = line.trim();
+        if (!trimmed) return match;
+        if (/^<\/?(h\d|ul|ol|li|pre|blockquote|p|code)/.test(trimmed)) return match;
+        return match.replace(line, "<p>" + trimmed + "</p>");
+      });
       html = html.replace(/\n/g, "<br>");
+      html = html.replace(/<\/ul>\s*<ul>/g, "");
+      html = html.replace(/<\/ol>\s*<ol>/g, "");
+      html = html.replace(/<\/p><br><p>/g, "</p><p>");
 
       return html;
     }
@@ -1036,6 +1271,32 @@
       const resp = await fetch("/api/pkb/graph", {
         method: "GET",
         headers: { "Authorization": "Bearer " + tokenEl.value.trim() }
+      });
+      if (!resp.ok) {
+        const text = await resp.text();
+        throw new Error(text || ("HTTP " + resp.status));
+      }
+      return resp.json();
+    }
+
+    async function ingestURL(payload) {
+      const resp = await fetch("/api/pkb/ingest", {
+        method: "POST",
+        headers: authHeaders(),
+        body: JSON.stringify(payload)
+      });
+      if (!resp.ok) {
+        const text = await resp.text();
+        throw new Error(text || ("HTTP " + resp.status));
+      }
+      return resp.json();
+    }
+
+    async function ingestFile(payload) {
+      const resp = await fetch("/api/pkb/ingest/file", {
+        method: "POST",
+        headers: { "Authorization": "Bearer " + tokenEl.value.trim() },
+        body: payload
       });
       if (!resp.ok) {
         const text = await resp.text();
@@ -1248,8 +1509,9 @@
           "<h4>" + escapeHtml(doc.title || "(untitled document)") + "</h4>" +
           "<p>Topic: " + escapeHtml(doc.topic_title || meta.topic.title) + "</p>" +
           "<p>Kind: " + escapeHtml(doc.kind || "note") + "</p>" +
+          (doc.ingest_method ? "<p>Ingest: " + escapeHtml(doc.ingest_method) + "</p>" : "") +
           (doc.source_url ? '<p><a href="' + encodeURI(doc.source_url) + '" target="_blank" rel="noopener noreferrer">Open source</a></p>' : "") +
-          '<div class="pkb-content">' + formatReadableContent(doc.content || "") + "</div>";
+          '<div class="pkb-content">' + renderPKBContent(doc.content || "", doc.ingest_method || "") + "</div>";
         renderPKBDocuments(relatedDocs);
       }
       renderPKBStats(pkbSceneState.currentTopics || []);
@@ -1267,6 +1529,7 @@
         card.innerHTML =
           "<h4>" + escapeHtml(doc.title || "(untitled document)") + "</h4>" +
           "<p>" + escapeHtml(doc.kind || "note") + "</p>" +
+          (doc.ingest_method ? "<p>" + escapeHtml(doc.ingest_method) + "</p>" : "") +
           (doc.source_url ? '<p><a href="' + encodeURI(doc.source_url) + '" target="_blank" rel="noopener noreferrer">' + escapeHtml(doc.source_url) + "</a></p>" : "") +
           "<div>" + escapeHtml(trimText(doc.content || "", 260)) + "</div>";
         card.addEventListener("click", (event) => {
@@ -1302,8 +1565,20 @@
       return date.toLocaleString();
     }
 
-    function formatReadableContent(text) {
-      return escapeHtml(String(text || "").trim())
+    function renderPKBContent(text, ingestMethod) {
+      const raw = String(text || "").trim();
+      if (!raw) {
+        return "";
+      }
+      const method = String(ingestMethod || "").toLowerCase();
+      if (method.includes("markdown")) {
+        return markdownToHtml(raw)
+          .replace(/<br>\s*(?=<\/?(h\d|p|ul|ol|li|pre|blockquote))/g, "")
+          .replace(/(<\/h\d>|<\/p>|<\/ul>|<\/ol>|<\/pre>|<\/blockquote>)<br>/g, "$1")
+          .replace(/(<h\d[^>]*>.*?<\/h\d>)<br>/g, "$1")
+          .replace(/(<br>\s*){3,}/g, "<br><br>");
+      }
+      return escapeHtml(raw)
         .replace(/\n{3,}/g, "\n\n")
         .replace(/\n/g, "<br>");
     }
@@ -1653,6 +1928,114 @@
         setStatus("Topics space ready.");
       } catch (err) {
         setStatus("Topics view failed: " + (err?.message || String(err)));
+      }
+    }
+
+    async function openIngestDialog() {
+      if (!tokenEl.value.trim()) {
+        setStatus("Set API token first.");
+        return;
+      }
+      try {
+        const payload = await fetchPKBGraph();
+        const topics = Array.isArray(payload.topics) ? payload.topics : [];
+        ingestTopicSelectEl.innerHTML = '<option value="">Select topic...</option><option value="__new__">Create new topic</option>';
+        for (const topic of topics) {
+          const option = document.createElement("option");
+          option.value = String(topic.id);
+          option.textContent = topic.title || ("Topic " + topic.id);
+          ingestTopicSelectEl.appendChild(option);
+        }
+        ingestModeEl.value = "url";
+        ingestURLWrapEl.classList.remove("is-hidden");
+        ingestFileWrapEl.classList.add("is-hidden");
+        ingestTopicSelectEl.value = "";
+        ingestNewTopicEl.value = "";
+        ingestURLEl.value = "";
+        ingestFileEl.value = "";
+        ingestNewTopicWrapEl.classList.add("is-hidden");
+        ingestDialogEl.classList.remove("is-hidden");
+      } catch (err) {
+        setStatus("Ingest dialog failed: " + (err?.message || String(err)));
+      }
+    }
+
+    function closeIngestDialog() {
+      ingestDialogEl.classList.add("is-hidden");
+      setIngestBusy(false);
+      ingestStatusEl.textContent = "";
+    }
+
+    function setIngestBusy(busy, message) {
+      ingestDialogBoxEl.classList.toggle("is-busy", !!busy);
+      ingestCloseEl.disabled = !!busy;
+      ingestModeEl.disabled = !!busy;
+      ingestTopicSelectEl.disabled = !!busy;
+      ingestNewTopicEl.disabled = !!busy;
+      ingestURLEl.disabled = !!busy;
+      ingestFileEl.disabled = !!busy;
+      ingestSubmitEl.disabled = !!busy;
+      ingestSubmitEl.textContent = busy ? "Processing..." : "Save";
+      ingestStatusEl.textContent = message || "";
+    }
+
+    async function submitIngest() {
+      const mode = ingestModeEl.value === "file" ? "file" : "url";
+      const file = ingestFileEl.files && ingestFileEl.files[0] ? ingestFileEl.files[0] : null;
+      const url = ingestURLEl.value.trim();
+      const selectedTopic = ingestTopicSelectEl.value;
+      const newTopic = ingestNewTopicEl.value.trim();
+      if (mode === "file" && !file) {
+        setStatus("Document file is required.");
+        return;
+      }
+      if (mode === "url" && !url) {
+        setStatus("URL is required.");
+        return;
+      }
+      if (!selectedTopic) {
+        setStatus("Select a topic or create a new one.");
+        return;
+      }
+      if (selectedTopic === "__new__" && !newTopic) {
+        setStatus("New topic is required.");
+        return;
+      }
+
+      setIngestBusy(true, mode === "file" ? "Uploading document and waiting for Docling..." : "Fetching and ingesting URL...");
+      try {
+        let result;
+        if (mode === "file") {
+          const payload = new FormData();
+          payload.append("file", file);
+          if (selectedTopic === "__new__") {
+            payload.append("new_topic", newTopic);
+          } else {
+            payload.append("topic_id", selectedTopic);
+          }
+          result = await ingestFile(payload);
+        } else {
+          const payload = { url };
+          if (selectedTopic === "__new__") {
+            payload.new_topic = newTopic;
+          } else {
+            payload.topic_id = Number(selectedTopic);
+          }
+          result = await ingestURL(payload);
+        }
+        closeIngestDialog();
+        addOp((mode === "file" ? "document" : "url") + " ingested into personal knowledge base");
+        setStatus("Content ingested via " + (result.ingest_method || "unknown") + ".");
+        if (!pkbOverlayEl.classList.contains("is-hidden")) {
+          await openPKBView(true);
+        }
+      } catch (err) {
+        setIngestBusy(false, "Processing failed.");
+        setStatus("Ingest failed: " + (err?.message || String(err)));
+      } finally {
+        if (!ingestDialogEl.classList.contains("is-hidden")) {
+          setIngestBusy(false, "");
+        }
       }
     }
 
