@@ -87,6 +87,8 @@ func RunServer(ctx context.Context, agentInstance *agent.Agent, pkbStore pkbRead
 		}
 		serveUI(w, r)
 	})
+	const jsonBodyLimit = 4 << 20 // 4 MB
+
 	mux.HandleFunc("/api/tools", func(w http.ResponseWriter, r *http.Request) {
 		if !authorizeRequest(r, cfg.Token) {
 			writeError(w, http.StatusUnauthorized, "unauthorized")
@@ -97,6 +99,7 @@ func RunServer(ctx context.Context, agentInstance *agent.Agent, pkbStore pkbRead
 			writeJSON(w, http.StatusOK, map[string]any{"tools": agentInstance.ListTools()})
 			return
 		case http.MethodPost:
+			r.Body = http.MaxBytesReader(w, r.Body, jsonBodyLimit)
 			var req toolUpdateRequest
 			decoder := json.NewDecoder(r.Body)
 			decoder.DisallowUnknownFields()
@@ -125,6 +128,7 @@ func RunServer(ctx context.Context, agentInstance *agent.Agent, pkbStore pkbRead
 			return
 		}
 
+		r.Body = http.MaxBytesReader(w, r.Body, jsonBodyLimit)
 		var req messageRequest
 		decoder := json.NewDecoder(r.Body)
 		decoder.DisallowUnknownFields()
@@ -162,6 +166,7 @@ func RunServer(ctx context.Context, agentInstance *agent.Agent, pkbStore pkbRead
 			return
 		}
 
+		r.Body = http.MaxBytesReader(w, r.Body, jsonBodyLimit)
 		var req messageRequest
 		decoder := json.NewDecoder(r.Body)
 		decoder.DisallowUnknownFields()
@@ -365,6 +370,7 @@ func RunServer(ctx context.Context, agentInstance *agent.Agent, pkbStore pkbRead
 			return
 		}
 
+		r.Body = http.MaxBytesReader(w, r.Body, jsonBodyLimit)
 		var req pkbIngestRequest
 		decoder := json.NewDecoder(r.Body)
 		decoder.DisallowUnknownFields()
@@ -520,14 +526,13 @@ func RunServer(ctx context.Context, agentInstance *agent.Agent, pkbStore pkbRead
 			"topic":         topic,
 			"topic_id":      topicID,
 			"document":      doc,
-			"stored_path":   storedPath,
 			"ingest_method": ingested.Method,
 		})
 	})
 
 	srv := &http.Server{
 		Addr:              cfg.Addr,
-		Handler:           mux,
+		Handler:           securityHeaders(mux),
 		ReadHeaderTimeout: 5 * time.Second,
 		ReadTimeout:       15 * time.Second,
 		// Keep SSE streams alive for long-running tool/model flows.
@@ -693,6 +698,15 @@ func isSHA256Hex(v string) bool {
 		return false
 	}
 	return true
+}
+
+func securityHeaders(next http.Handler) http.Handler {
+	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("X-Content-Type-Options", "nosniff")
+		w.Header().Set("X-Frame-Options", "DENY")
+		w.Header().Set("Referrer-Policy", "strict-origin-when-cross-origin")
+		next.ServeHTTP(w, r)
+	})
 }
 
 func writeJSON(w http.ResponseWriter, status int, payload any) {

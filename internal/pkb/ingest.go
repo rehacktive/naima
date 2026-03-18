@@ -471,11 +471,8 @@ func fetchURLBytes(ctx context.Context, client *http.Client, rawURL string) (str
 	if err != nil {
 		return "", "", nil, fmt.Errorf("invalid url: %w", err)
 	}
-	if err := validateFetchURL(ctx, u); err != nil {
+	if err := validateFetchURLStructure(u); err != nil {
 		return "", "", nil, err
-	}
-	if u.Scheme != "http" && u.Scheme != "https" {
-		return "", "", nil, fmt.Errorf("unsupported url scheme: %s", u.Scheme)
 	}
 
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, u.String(), nil)
@@ -489,8 +486,13 @@ func fetchURLBytes(ctx context.Context, client *http.Client, rawURL string) (str
 		httpClient = client
 	}
 	cloned := *httpClient
+	// Use a custom transport that validates IPs at dial time to prevent DNS
+	// rebinding: a pre-flight DNS check and the actual connection use separate
+	// lookups, so an attacker-controlled resolver could return a public IP
+	// during validation but then serve a private IP for the real connection.
+	cloned.Transport = newSSRFSafeTransport()
 	cloned.CheckRedirect = func(redirectReq *http.Request, _ []*http.Request) error {
-		return validateFetchURL(redirectReq.Context(), redirectReq.URL)
+		return validateFetchURLStructure(redirectReq.URL)
 	}
 
 	resp, err := cloned.Do(req)
@@ -802,6 +804,69 @@ func TruncateRunes(s string, limit int) string {
 		return string(r)
 	}
 	return strings.TrimSpace(string(r[:limit])) + "..."
+}
+
+// newSSRFSafeTransport returns an http.Transport whose dialer resolves host IPs
+// and blocks private/loopback/multicast addresses at connection time.
+// This prevents DNS rebinding: the IP is checked at the moment the TCP
+// connection is established, not in a separate pre-flight lookup.
+func newSSRFSafeTransport() *http.Transport {
+	return &http.Transport{
+		DialContext: func(ctx context.Context, network, addr string) (net.Conn, error) {
+			host, port, err := net.SplitHostPort(addr)
+			if err != nil {
+				return nil, err
+			}
+			ips, err := net.DefaultResolver.LookupNetIP(ctx, "ip", host)
+			if err != nil {
+				return nil, fmt.Errorf("resolve host failed: %w", err)
+			}
+			if len(ips) == 0 {
+				return nil, fmt.Errorf("host resolved to no addresses")
+			}
+			var dialer net.Dialer
+			var lastErr error
+			for _, ip := range ips {
+				if !ip.IsValid() {
+					continue
+				}
+				if ip.IsLoopback() || ip.IsPrivate() || ip.IsMulticast() || ip.IsLinkLocalUnicast() || ip.IsLinkLocalMulticast() || ip.IsInterfaceLocalMulticast() || blockedIPv4CGNAT.Contains(ip) {
+					lastErr = fmt.Errorf("url host resolves to disallowed address")
+					continue
+				}
+				conn, err := dialer.DialContext(ctx, network, net.JoinHostPort(ip.String(), port))
+				if err == nil {
+					return conn, nil
+				}
+				lastErr = err
+			}
+			if lastErr == nil {
+				lastErr = fmt.Errorf("no usable addresses for %s", host)
+			}
+			return nil, lastErr
+		},
+	}
+}
+
+// validateFetchURLStructure checks URL scheme and structure without doing a DNS
+// lookup. Used for initial validation and redirect checks when the SSRF-safe
+// dialer already handles IP-level enforcement at connection time.
+func validateFetchURLStructure(u *url.URL) error {
+	if u == nil {
+		return fmt.Errorf("invalid url")
+	}
+	scheme := strings.ToLower(strings.TrimSpace(u.Scheme))
+	if scheme != "http" && scheme != "https" {
+		return fmt.Errorf("unsupported url scheme: %s", u.Scheme)
+	}
+	if u.User != nil {
+		return fmt.Errorf("url userinfo is not allowed")
+	}
+	host := strings.TrimSpace(u.Hostname())
+	if host == "" {
+		return fmt.Errorf("url host is required")
+	}
+	return nil
 }
 
 func validateFetchURL(ctx context.Context, u *url.URL) error {

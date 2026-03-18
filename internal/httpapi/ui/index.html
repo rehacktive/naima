@@ -1331,6 +1331,20 @@
       return bubble;
     }
 
+    // Returns the URL only when its scheme is http or https; otherwise returns "".
+    // Prevents javascript: and data: URIs from being used as href values.
+    function safeHref(url) {
+      try {
+        const u = new URL(String(url || ""));
+        if (u.protocol !== "http:" && u.protocol !== "https:") {
+          return "";
+        }
+        return u.href;
+      } catch (_) {
+        return "";
+      }
+    }
+
     function escapeHtml(s) {
       return s
         .replace(/&/g, "&amp;")
@@ -1703,7 +1717,7 @@
             : '<div class="pkb-actions"><button class="pkb-action primary" type="button" data-pkb-select-chat="' + escapeHtml(String(meta.topic.id)) + '">Select documents for chat</button><button class="pkb-action danger" type="button" data-pkb-delete-topic="' + escapeHtml(String(meta.topic.id)) + '">Delete topic</button></div>') +
           "<p>Topic building with " + escapeHtml(String((meta.topic.documents_list || []).length)) + " document(s).</p>" +
           "<p>Created: " + escapeHtml(formatDate(meta.topic.created_at)) + "</p>" +
-          (firstLink ? '<p><a href="' + encodeURI(firstLink.source_url) + '" target="_blank" rel="noopener noreferrer">Open a source from this topic</a></p>' : "");
+          (firstLink && safeHref(firstLink.source_url) ? '<p><a href="' + safeHref(firstLink.source_url) + '" target="_blank" rel="noopener noreferrer">Open a source from this topic</a></p>' : "");
         renderPKBDocuments(meta.topic.documents_list || []);
       } else {
         const doc = meta.document;
@@ -1719,7 +1733,7 @@
           '<p>Topic: <span class="pkb-topic-value">' + escapeHtml(doc.topic_title || meta.topic.title) + "</span></p>" +
           "<p>Kind: " + escapeHtml(doc.kind || "note") + "</p>" +
           (doc.ingest_method ? "<p>Ingest: " + escapeHtml(doc.ingest_method) + "</p>" : "") +
-          (doc.source_url ? '<p><a href="' + encodeURI(doc.source_url) + '" target="_blank" rel="noopener noreferrer">Open source</a></p>' : "") +
+          (doc.source_url && safeHref(doc.source_url) ? '<p><a href="' + safeHref(doc.source_url) + '" target="_blank" rel="noopener noreferrer">Open source</a></p>' : "") +
           "</div>" +
           "</div>" +
           '<div class="pkb-content">' + renderPKBContent(doc.content || "", doc.ingest_method || "") + "</div>" +
@@ -1851,7 +1865,7 @@
           "<h4>" + escapeHtml(doc.title || "(untitled document)") + "</h4>" +
           "<p>" + escapeHtml(doc.kind || "note") + "</p>" +
           (doc.ingest_method ? "<p>" + escapeHtml(doc.ingest_method) + "</p>" : "") +
-          (doc.source_url ? '<p><a href="' + encodeURI(doc.source_url) + '" target="_blank" rel="noopener noreferrer">' + escapeHtml(doc.source_url) + "</a></p>" : "") +
+          (doc.source_url && safeHref(doc.source_url) ? '<p><a href="' + safeHref(doc.source_url) + '" target="_blank" rel="noopener noreferrer">' + escapeHtml(doc.source_url) + "</a></p>" : "") +
           "<div>" + escapeHtml(trimText(doc.content || "", 260)) + "</div>";
         card.addEventListener("click", (event) => {
           if (event.target && event.target.closest("a")) {
