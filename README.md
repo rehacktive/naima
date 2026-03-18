@@ -6,6 +6,7 @@ Naima is a Go-based AI agent with:
 - a built-in streaming web UI
 - Telegram integration
 - a personal knowledge base with 3D visualization
+- semantic retrieval over ingested PKB document chunks
 - tool calling, scheduling, browser automation, and web search
 
 ## Overview
@@ -15,6 +16,7 @@ Main capabilities:
 - stream model output to the web UI and optionally to Telegram drafts
 - persist conversation memory in PostgreSQL/pgvector
 - ingest URLs and files into a personal knowledge base
+- embed PKB document chunks for semantic retrieval
 - browse/search the web through local SearxNG
 - extract document text through Apache Tika
 - automate websites through Playwright
@@ -290,6 +292,8 @@ Supports:
 - note ingestion
 - temporal search over ingested material
 
+The tool stores full documents and the storage layer also generates chunk embeddings for semantic retrieval.
+
 URL ingestion modes:
 - `hybrid` default
 - `tika`
@@ -340,8 +344,9 @@ Supports:
 The personal knowledge base stores:
 - topics in `pkb_topics`
 - documents in `pkb_documents`
+- document chunks + embeddings in `pkb_embeddings`
 
-Each document belongs to one topic.
+Each document belongs to one topic. Each embedded chunk belongs to one document.
 
 ### Ingestion
 
@@ -358,6 +363,17 @@ Stored documents include `ingest_method`, for example:
 - `direct_text`
 - `manual_note`
 - `tika_file_markdown`
+
+### PKB chunk embeddings
+
+For every created or updated PKB document:
+- full content remains stored in `pkb_documents.content`
+- content is split into chunks
+- default chunk size is `2000` characters
+- each chunk is embedded with the configured embedding model
+- chunks and vectors are stored in `pkb_embeddings`
+
+This enables semantic retrieval of PKB content when the user asks about ingested material such as invoices, uploaded files, notes, or other PKB topics.
 
 ### PKB UI
 
@@ -383,6 +399,17 @@ While the scope is active:
 - chat requests are built only on top of the selected documents
 - clearing the scope resets memory immediately
 - applying a scope also resets memory immediately
+
+### Automatic PKB retrieval during chat
+
+When a user question appears to target ingested PKB material, Naima can retrieve the nearest PKB document chunks by embeddings and inject the matching documents as temporary context for the current reply.
+
+Example use cases:
+- "give me the summary of the last invoice"
+- "check in my documents what the payment deadline is"
+- "search the knowledge base for the contract renewal date"
+
+This retrieval is not stored as a permanent system prompt. It is added only for the current request.
 
 ## Conversation Memory
 
@@ -438,6 +465,10 @@ Important environment variables:
 - `NAIMA_TIKA_ALLOW_FALLBACK`: fallback to plain extraction if Tika fails
 - `NAIMA_TIKA_FILE_TIMEOUT_MS`: timeout for file extraction through Tika
 - `NAIMA_PKB_INGEST_MODE`: `hybrid`, `tika`, `playwright`, or `fetch`
+- `NAIMA_PKB_CHUNK_SIZE`: PKB chunk size in characters for embeddings, default `2000`
+- `NAIMA_PKB_RETRIEVAL_DOC_LIMIT`: max retrieved PKB documents per chat lookup, default `3`
+- `NAIMA_PKB_RETRIEVAL_CHUNK_LIMIT`: max retrieved chunks per document, default `4`
+- `NAIMA_PKB_RETRIEVAL_THRESHOLD`: cosine-distance threshold for PKB retrieval, default `0.35`
 - `NAIMA_PKB_UPLOAD_DIR`: local storage directory for uploaded PKB files
 - `NAIMA_PLAYWRIGHT_HEADLESS`: Playwright headless mode
 - `NAIMA_PLAYWRIGHT_TIMEOUT_MS`: Playwright timeout

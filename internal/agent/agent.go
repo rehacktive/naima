@@ -17,6 +17,7 @@ import (
 	openai "github.com/sashabaranov/go-openai"
 	log "github.com/sirupsen/logrus"
 
+	"naima/internal/pkb"
 	"naima/internal/safeio"
 	"naima/internal/tools"
 )
@@ -32,6 +33,7 @@ type Agent struct {
 	Model          string
 	EmbeddingModel string
 	Memory         ConversationMemory
+	PKB            PKBRetriever
 	Tools          map[string]tools.Tool
 	ToolEnabled    map[string]bool
 	mu             sync.Mutex
@@ -51,13 +53,17 @@ type ToolState struct {
 	Enabled     bool   `json:"enabled"`
 }
 
+type PKBRetriever interface {
+	SearchRelevantDocuments(ctx context.Context, queryEmbeddings []float32, docLimit int, chunkLimit int) ([]pkb.RelevantDocument, error)
+}
+
 type MemoryStatusView struct {
 	memcore.Status
 	SummaryMessages int `json:"summary_messages"`
 	RecallMessages  int `json:"recall_messages"`
 }
 
-func New(name string, systemPrompt string, toolPromptDir string, client *openai.Client, model string, embeddingModel string, memory ConversationMemory, toolset []tools.Tool) *Agent {
+func New(name string, systemPrompt string, toolPromptDir string, client *openai.Client, model string, embeddingModel string, memory ConversationMemory, pkb PKBRetriever, toolset []tools.Tool) *Agent {
 	toolMap := make(map[string]tools.Tool, len(toolset))
 	for _, tool := range toolset {
 		if tool == nil {
@@ -74,6 +80,7 @@ func New(name string, systemPrompt string, toolPromptDir string, client *openai.
 		Model:          model,
 		EmbeddingModel: embeddingModel,
 		Memory:         memory,
+		PKB:            pkb,
 		Tools:          toolMap,
 		ToolEnabled:    enabledMap(toolMap),
 	}
@@ -111,6 +118,7 @@ func (a *Agent) processMessage(ctx context.Context, input string, onDelta func(s
 	systemPrompt := a.SystemPrompt
 	toolPromptDir := a.ToolPromptDir
 	memoryStore := a.Memory
+	pkbRetriever := a.PKB
 	activeTools := a.enabledToolsLocked()
 	a.mu.Unlock()
 
@@ -148,6 +156,26 @@ func (a *Agent) processMessage(ctx context.Context, input string, onDelta func(s
 	log.Infof("[agent] embeddings generated dim=%d", len(emb))
 	emitOp(onOp, fmt.Sprintf("embeddings generated (dim=%d)", len(emb)))
 
+	pkbContext := ""
+	if pkbRetriever != nil && shouldUsePKBRetrieval(normalizedInput) {
+		log.Infof("[agent] pkb retrieval triggered")
+		emitOp(onOp, "pkb retrieval started")
+		docs, err := pkbRetriever.SearchRelevantDocuments(ctx, emb, 3, 3)
+		if err != nil {
+			log.Warnf("[agent] pkb retrieval failed: %v", err)
+			emitOp(onOp, "pkb retrieval failed")
+		} else if len(docs) > 0 {
+			pkbContext = buildPKBContext(docs)
+			summary := summarizePKBRetrieval(docs)
+			log.Infof("[agent] pkb context selected documents=%d details=%s", len(docs), summary)
+			emitOp(onOp, fmt.Sprintf("pkb chunks retrieved: %s", summary))
+			emitOp(onOp, fmt.Sprintf("pkb context loaded (%d documents)", len(docs)))
+		} else {
+			log.Infof("[agent] pkb retrieval returned no matching documents")
+			emitOp(onOp, "pkb retrieval found no matching documents")
+		}
+	}
+
 	now := time.Now().UTC()
 	a.mu.Lock()
 	memoryStore.AddMessage(memstorage.Message{
@@ -166,6 +194,12 @@ func (a *Agent) processMessage(ctx context.Context, input string, onDelta func(s
 		Role:    openai.ChatMessageRoleSystem,
 		Content: systemPrompt,
 	})
+	if pkbContext != "" {
+		messages = append(messages, openai.ChatCompletionMessage{
+			Role:    openai.ChatMessageRoleSystem,
+			Content: pkbContext,
+		})
+	}
 	for _, msg := range memoryMessages {
 		messages = append(messages, openai.ChatCompletionMessage{
 			Role:    normalizeRole(msg.Role),
@@ -304,6 +338,119 @@ func composeSystemPrompt(base string, toolPromptDir string, activeTools map[stri
 		return strings.Join(sections, "\n\n")
 	}
 	return base + "\n\n" + strings.Join(sections, "\n\n")
+}
+
+func shouldUsePKBRetrieval(input string) bool {
+	lower := strings.ToLower(strings.TrimSpace(input))
+	if lower == "" {
+		return false
+	}
+	blocked := []string{
+		"current document selection",
+		"what's the current document selection",
+		"what is the current document selection",
+		"selected documents for chat",
+	}
+	for _, pattern := range blocked {
+		if strings.Contains(lower, pattern) {
+			return false
+		}
+	}
+	patterns := []string{
+		"pkb",
+		"knowledge base",
+		"my notes",
+		"my documents",
+		"my files",
+		"my uploads",
+		"uploaded",
+		"ingested",
+		"invoice",
+		"receipt",
+		"contract",
+		"agreement",
+		"report",
+		"paper",
+		"pdf",
+		"topic ",
+		"topic:",
+	}
+	for _, pattern := range patterns {
+		if strings.Contains(lower, pattern) {
+			return true
+		}
+	}
+	return false
+}
+
+func buildPKBContext(docs []pkb.RelevantDocument) string {
+	if len(docs) == 0 {
+		return ""
+	}
+	var b strings.Builder
+	b.WriteString("Relevant personal knowledge base documents were retrieved for this request.\n")
+	b.WriteString("Use them when answering. Prefer them over unsupported guesses. If they are insufficient, say so.\n\n")
+	totalChars := 0
+	for i, doc := range docs {
+		if i > 0 {
+			b.WriteString("\n\n---\n\n")
+		}
+		title := strings.TrimSpace(doc.Document.Title)
+		if title == "" {
+			title = fmt.Sprintf("Document %d", doc.Document.ID)
+		}
+		b.WriteString(fmt.Sprintf("Document %d\n", i+1))
+		b.WriteString(fmt.Sprintf("Title: %s\n", title))
+		if doc.Document.TopicTitle != "" {
+			b.WriteString(fmt.Sprintf("Topic: %s\n", doc.Document.TopicTitle))
+		}
+		if doc.Document.CreatedAt != nil {
+			b.WriteString(fmt.Sprintf("Created: %s\n", doc.Document.CreatedAt.UTC().Format(time.RFC3339)))
+		}
+		if doc.Document.SourceURL != "" {
+			b.WriteString(fmt.Sprintf("Source: %s\n", doc.Document.SourceURL))
+		}
+		if len(doc.Chunks) > 0 {
+			b.WriteString("Most relevant chunks:\n")
+			for _, chunk := range doc.Chunks {
+				b.WriteString(fmt.Sprintf("- chunk %d (distance %.4f): %s\n", chunk.ChunkIndex+1, chunk.Distance, truncateForContext(chunk.Content, 350)))
+			}
+		}
+		b.WriteString("\nFull content:\n")
+		content := truncateForContext(doc.Document.Content, 6000)
+		totalChars += len(content)
+		if totalChars > 16000 {
+			content = truncateForContext(content, max(0, 16000-(totalChars-len(content))))
+		}
+		b.WriteString(content)
+		if totalChars >= 16000 {
+			break
+		}
+	}
+	return strings.TrimSpace(b.String())
+}
+
+func summarizePKBRetrieval(docs []pkb.RelevantDocument) string {
+	if len(docs) == 0 {
+		return "none"
+	}
+	parts := make([]string, 0, len(docs))
+	for _, doc := range docs {
+		title := strings.TrimSpace(doc.Document.Title)
+		if title == "" {
+			title = fmt.Sprintf("document %d", doc.Document.ID)
+		}
+		parts = append(parts, fmt.Sprintf("%s (%d chunks, min_distance=%.4f)", title, len(doc.Chunks), doc.MinDistance))
+	}
+	return strings.Join(parts, "; ")
+}
+
+func truncateForContext(value string, maxChars int) string {
+	value = strings.TrimSpace(value)
+	if maxChars <= 0 || len(value) <= maxChars {
+		return value
+	}
+	return strings.TrimSpace(value[:maxChars]) + "..."
 }
 
 func (a *Agent) runModel(ctx context.Context, client *openai.Client, req openai.ChatCompletionRequest, onDelta func(string)) (openai.ChatCompletionMessage, error) {

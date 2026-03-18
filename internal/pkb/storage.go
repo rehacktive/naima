@@ -4,14 +4,20 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"math"
+	"sort"
+	"strconv"
 	"strings"
 	"time"
 
 	"github.com/jackc/pgx/v5/pgconn"
 	"github.com/jackc/pgx/v5/pgxpool"
+	log "github.com/sirupsen/logrus"
 )
 
 const initSchemaQuery = `
+CREATE EXTENSION IF NOT EXISTS vector;
+
 CREATE TABLE IF NOT EXISTS pkb_topics (
 	id BIGSERIAL PRIMARY KEY,
 	title TEXT NOT NULL,
@@ -34,10 +40,46 @@ CREATE TABLE IF NOT EXISTS pkb_documents (
 ALTER TABLE pkb_documents ADD COLUMN IF NOT EXISTS ingest_method TEXT NOT NULL DEFAULT '';
 CREATE INDEX IF NOT EXISTS idx_pkb_documents_topic_id ON pkb_documents(topic_id);
 CREATE INDEX IF NOT EXISTS idx_pkb_documents_kind ON pkb_documents(kind);
+
+CREATE TABLE IF NOT EXISTS pkb_embeddings (
+	id BIGSERIAL PRIMARY KEY,
+	document_id BIGINT NOT NULL REFERENCES pkb_documents(id) ON DELETE CASCADE,
+	chunk_index INTEGER NOT NULL,
+	chunk_content TEXT NOT NULL,
+	embeddings VECTOR,
+	created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+CREATE INDEX IF NOT EXISTS idx_pkb_embeddings_document_id ON pkb_embeddings(document_id);
 `
 
+const (
+	defaultChunkSize           = 2000
+	defaultRetrievalDocLimit   = 3
+	defaultRetrievalChunkLimit = 4
+	defaultRetrievalThreshold  = 0.35
+)
+
 type Storage struct {
-	pool *pgxpool.Pool
+	pool                *pgxpool.Pool
+	embedder            EmbeddingGenerator
+	embeddingModel      string
+	chunkSize           int
+	vectorDims          int
+	retrievalDocLimit   int
+	retrievalChunkLimit int
+	retrievalThreshold  float64
+}
+
+type EmbeddingGenerator func(ctx context.Context, inputs []string, model string) ([][]float32, error)
+
+type Config struct {
+	Embedder            EmbeddingGenerator
+	EmbeddingModel      string
+	ChunkSize           int
+	VectorDims          int
+	RetrievalDocLimit   int
+	RetrievalChunkLimit int
+	RetrievalThreshold  float64
 }
 
 type Topic struct {
@@ -85,7 +127,19 @@ type ListDocumentsRangeRequest struct {
 	Until   time.Time
 }
 
-func NewStorage(ctx context.Context, dsn string) (*Storage, error) {
+type RelevantChunk struct {
+	ChunkIndex int     `json:"chunk_index"`
+	Content    string  `json:"content"`
+	Distance   float64 `json:"distance"`
+}
+
+type RelevantDocument struct {
+	Document    Document        `json:"document"`
+	Chunks      []RelevantChunk `json:"chunks"`
+	MinDistance float64         `json:"min_distance"`
+}
+
+func NewStorage(ctx context.Context, dsn string, cfg Config) (*Storage, error) {
 	if strings.TrimSpace(dsn) == "" {
 		return nil, errors.New("pkb dsn is empty")
 	}
@@ -100,7 +154,40 @@ func NewStorage(ctx context.Context, dsn string) (*Storage, error) {
 		return nil, fmt.Errorf("pkb init schema failed: %w", err)
 	}
 
-	return &Storage{pool: pool}, nil
+	storage := &Storage{
+		pool:                pool,
+		embedder:            cfg.Embedder,
+		embeddingModel:      strings.TrimSpace(cfg.EmbeddingModel),
+		chunkSize:           cfg.ChunkSize,
+		vectorDims:          cfg.VectorDims,
+		retrievalDocLimit:   cfg.RetrievalDocLimit,
+		retrievalChunkLimit: cfg.RetrievalChunkLimit,
+		retrievalThreshold:  cfg.RetrievalThreshold,
+	}
+	if storage.chunkSize <= 0 {
+		storage.chunkSize = defaultChunkSize
+	}
+	if storage.vectorDims < 0 {
+		storage.vectorDims = 0
+	}
+	if storage.retrievalDocLimit <= 0 {
+		storage.retrievalDocLimit = defaultRetrievalDocLimit
+	}
+	if storage.retrievalChunkLimit <= 0 {
+		storage.retrievalChunkLimit = defaultRetrievalChunkLimit
+	}
+	if storage.retrievalThreshold <= 0 {
+		storage.retrievalThreshold = defaultRetrievalThreshold
+	}
+	if err := storage.initEmbeddingSchema(ctx); err != nil {
+		pool.Close()
+		return nil, err
+	}
+	if err := storage.backfillMissingEmbeddings(ctx); err != nil {
+		pool.Close()
+		return nil, err
+	}
+	return storage, nil
 }
 
 func (s *Storage) Close() {
@@ -243,6 +330,12 @@ RETURNING id, topic_id, kind, title, source_url, ingest_method, content, created
 		}
 		return Document{}, fmt.Errorf("create document failed: %w", err)
 	}
+	if err := s.rebuildEmbeddingsForDocument(ctx, d.ID, d.Content); err != nil {
+		if _, delErr := s.pool.Exec(ctx, `DELETE FROM pkb_documents WHERE id = $1`, d.ID); delErr != nil {
+			log.Warnf("[pkb] rollback document after embedding failure failed document_id=%d err=%v", d.ID, delErr)
+		}
+		return Document{}, err
+	}
 	return d, nil
 }
 
@@ -303,6 +396,9 @@ RETURNING id, topic_id, kind, title, source_url, ingest_method, content, created
 		}
 		return Document{}, fmt.Errorf("update document failed: %w", err)
 	}
+	if err := s.rebuildEmbeddingsForDocument(ctx, d.ID, d.Content); err != nil {
+		return Document{}, err
+	}
 	return d, nil
 }
 
@@ -356,6 +452,299 @@ ORDER BY d.created_at DESC, d.id DESC;
 		return nil, fmt.Errorf("iterate ranged documents failed: %w", err)
 	}
 	return out, nil
+}
+
+func (s *Storage) SearchRelevantDocuments(ctx context.Context, queryEmbeddings []float32, docLimit int, chunkLimit int) ([]RelevantDocument, error) {
+	if len(queryEmbeddings) == 0 {
+		return nil, nil
+	}
+	if docLimit <= 0 {
+		docLimit = s.retrievalDocLimit
+	}
+	if chunkLimit <= 0 {
+		chunkLimit = s.retrievalChunkLimit
+	}
+
+	rows, err := s.pool.Query(ctx, `
+SELECT
+	e.document_id,
+	e.chunk_index,
+	e.chunk_content,
+	e.embeddings <=> $1::vector AS distance,
+	d.topic_id,
+	t.title,
+	d.kind,
+	d.title,
+	d.source_url,
+	d.ingest_method,
+	d.content,
+	d.created_at,
+	d.updated_at
+FROM pkb_embeddings e
+JOIN pkb_documents d ON d.id = e.document_id
+JOIN pkb_topics t ON t.id = d.topic_id
+WHERE e.embeddings IS NOT NULL
+  AND vector_dims(e.embeddings) = $2
+  AND (e.embeddings <=> $1::vector) <= $3
+ORDER BY e.embeddings <=> $1::vector
+LIMIT $4
+`, vectorLiteral(queryEmbeddings), len(queryEmbeddings), s.retrievalThreshold, max(docLimit*chunkLimit*4, 12))
+	if err != nil {
+		return nil, fmt.Errorf("search relevant pkb documents failed: %w", err)
+	}
+	defer rows.Close()
+
+	type rowData struct {
+		DocumentID   int64
+		ChunkIndex   int
+		ChunkContent string
+		Distance     float64
+		Document     Document
+	}
+
+	grouped := map[int64]*RelevantDocument{}
+	order := make([]int64, 0, docLimit)
+	for rows.Next() {
+		var item rowData
+		if err := rows.Scan(
+			&item.DocumentID,
+			&item.ChunkIndex,
+			&item.ChunkContent,
+			&item.Distance,
+			&item.Document.TopicID,
+			&item.Document.TopicTitle,
+			&item.Document.Kind,
+			&item.Document.Title,
+			&item.Document.SourceURL,
+			&item.Document.IngestMethod,
+			&item.Document.Content,
+			&item.Document.CreatedAt,
+			&item.Document.UpdatedAt,
+		); err != nil {
+			return nil, fmt.Errorf("scan relevant pkb row failed: %w", err)
+		}
+		item.Document.ID = item.DocumentID
+		cur, ok := grouped[item.DocumentID]
+		if !ok {
+			if len(grouped) >= docLimit {
+				continue
+			}
+			grouped[item.DocumentID] = &RelevantDocument{
+				Document:    item.Document,
+				MinDistance: item.Distance,
+			}
+			order = append(order, item.DocumentID)
+			cur = grouped[item.DocumentID]
+		}
+		if item.Distance < cur.MinDistance {
+			cur.MinDistance = item.Distance
+		}
+		if len(cur.Chunks) < chunkLimit {
+			cur.Chunks = append(cur.Chunks, RelevantChunk{
+				ChunkIndex: item.ChunkIndex,
+				Content:    item.ChunkContent,
+				Distance:   item.Distance,
+			})
+		}
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate relevant pkb rows failed: %w", err)
+	}
+
+	result := make([]RelevantDocument, 0, len(grouped))
+	for _, id := range order {
+		doc := grouped[id]
+		sort.Slice(doc.Chunks, func(i, j int) bool { return doc.Chunks[i].Distance < doc.Chunks[j].Distance })
+		result = append(result, *doc)
+	}
+	sort.Slice(result, func(i, j int) bool { return result[i].MinDistance < result[j].MinDistance })
+	return result, nil
+}
+
+func (s *Storage) rebuildEmbeddingsForDocument(ctx context.Context, documentID int64, content string) error {
+	if documentID <= 0 {
+		return errors.New("document_id is required")
+	}
+	if _, err := s.pool.Exec(ctx, `DELETE FROM pkb_embeddings WHERE document_id = $1`, documentID); err != nil {
+		return fmt.Errorf("delete document embeddings failed: %w", err)
+	}
+	if s.embedder == nil || s.embeddingModel == "" {
+		return nil
+	}
+	chunks := splitDocumentIntoChunks(content, s.chunkSize)
+	if len(chunks) == 0 {
+		return nil
+	}
+	vectors, err := s.embedder(ctx, chunks, s.embeddingModel)
+	if err != nil {
+		return fmt.Errorf("generate document chunk embeddings failed: %w", err)
+	}
+	if len(vectors) != len(chunks) {
+		return fmt.Errorf("embedding response mismatch: expected %d vectors, got %d", len(chunks), len(vectors))
+	}
+
+	batch, err := s.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin document embedding batch failed: %w", err)
+	}
+	defer batch.Rollback(ctx)
+
+	for i, chunk := range chunks {
+		if _, err := batch.Exec(ctx, `
+INSERT INTO pkb_embeddings(document_id, chunk_index, chunk_content, embeddings)
+VALUES ($1, $2, $3, $4::vector)
+`, documentID, i, chunk, vectorLiteral(vectors[i])); err != nil {
+			return fmt.Errorf("store document chunk embedding failed: %w", err)
+		}
+	}
+	if err := batch.Commit(ctx); err != nil {
+		return fmt.Errorf("commit document chunk embeddings failed: %w", err)
+	}
+	log.Infof("[pkb] chunk embeddings updated document_id=%d chunks=%d dim=%d", documentID, len(chunks), len(vectors[0]))
+	return nil
+}
+
+func (s *Storage) initEmbeddingSchema(ctx context.Context) error {
+	if _, err := s.pool.Exec(ctx, `DROP INDEX IF EXISTS pkb_embeddings_vector_idx`); err != nil {
+		return fmt.Errorf("pkb init embedding schema failed: %w", err)
+	}
+	if _, err := s.pool.Exec(ctx, `
+ALTER TABLE pkb_embeddings
+ALTER COLUMN embeddings TYPE vector
+USING embeddings::vector`); err != nil {
+		return fmt.Errorf("pkb init embedding schema failed: %w", err)
+	}
+	if s.vectorDims <= 0 {
+		return nil
+	}
+
+	var mismatched int
+	if err := s.pool.QueryRow(ctx, `
+SELECT COUNT(*) FROM pkb_embeddings
+WHERE embeddings IS NOT NULL
+  AND vector_dims(embeddings) <> $1
+`, s.vectorDims).Scan(&mismatched); err != nil {
+		return fmt.Errorf("pkb init embedding schema failed: %w", err)
+	}
+	if mismatched > 0 {
+		log.Warnf("[pkb] detected %d chunk embeddings with dims different from %d; running without ivfflat index", mismatched, s.vectorDims)
+		return nil
+	}
+	if _, err := s.pool.Exec(ctx, fmt.Sprintf(`
+ALTER TABLE pkb_embeddings
+ALTER COLUMN embeddings TYPE vector(%d)
+USING embeddings::vector(%d)`, s.vectorDims, s.vectorDims)); err != nil {
+		return fmt.Errorf("pkb init embedding schema failed: %w", err)
+	}
+	if _, err := s.pool.Exec(ctx, `
+CREATE INDEX IF NOT EXISTS pkb_embeddings_vector_idx
+ON pkb_embeddings USING ivfflat (embeddings vector_cosine_ops)
+WITH (lists = 100)`); err != nil {
+		return fmt.Errorf("pkb init embedding schema failed: %w", err)
+	}
+	return nil
+}
+
+func (s *Storage) backfillMissingEmbeddings(ctx context.Context) error {
+	if s.embedder == nil || s.embeddingModel == "" {
+		return nil
+	}
+	rows, err := s.pool.Query(ctx, `
+SELECT d.id, d.content
+FROM pkb_documents d
+WHERE NOT EXISTS (
+	SELECT 1 FROM pkb_embeddings e WHERE e.document_id = d.id
+)
+ORDER BY d.id ASC`)
+	if err != nil {
+		return fmt.Errorf("pkb backfill query failed: %w", err)
+	}
+	defer rows.Close()
+
+	type docRow struct {
+		ID      int64
+		Content string
+	}
+	pending := make([]docRow, 0)
+	for rows.Next() {
+		var row docRow
+		if err := rows.Scan(&row.ID, &row.Content); err != nil {
+			return fmt.Errorf("pkb backfill scan failed: %w", err)
+		}
+		pending = append(pending, row)
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("pkb backfill iterate failed: %w", err)
+	}
+	for _, row := range pending {
+		if err := s.rebuildEmbeddingsForDocument(ctx, row.ID, row.Content); err != nil {
+			return fmt.Errorf("pkb backfill embeddings failed for document %d: %w", row.ID, err)
+		}
+	}
+	if len(pending) > 0 {
+		log.Infof("[pkb] backfilled chunk embeddings for %d existing documents", len(pending))
+	}
+	return nil
+}
+
+func splitDocumentIntoChunks(content string, chunkSize int) []string {
+	content = strings.TrimSpace(content)
+	if content == "" {
+		return nil
+	}
+	if chunkSize <= 0 {
+		chunkSize = defaultChunkSize
+	}
+	paragraphs := strings.Split(strings.ReplaceAll(content, "\r\n", "\n"), "\n\n")
+	chunks := make([]string, 0, int(math.Max(1, float64(len(content)/chunkSize))))
+	var current strings.Builder
+	currentRunes := 0
+	flush := func() {
+		if currentRunes == 0 {
+			return
+		}
+		chunks = append(chunks, strings.TrimSpace(current.String()))
+		current.Reset()
+		currentRunes = 0
+	}
+	for _, para := range paragraphs {
+		para = strings.TrimSpace(para)
+		if para == "" {
+			continue
+		}
+		paraRunes := len([]rune(para))
+		if paraRunes > chunkSize {
+			flush()
+			runes := []rune(para)
+			for start := 0; start < len(runes); start += chunkSize {
+				end := start + chunkSize
+				if end > len(runes) {
+					end = len(runes)
+				}
+				chunks = append(chunks, strings.TrimSpace(string(runes[start:end])))
+			}
+			continue
+		}
+		if currentRunes > 0 && currentRunes+2+paraRunes > chunkSize {
+			flush()
+		}
+		if currentRunes > 0 {
+			current.WriteString("\n\n")
+			currentRunes += 2
+		}
+		current.WriteString(para)
+		currentRunes += paraRunes
+	}
+	flush()
+	return chunks
+}
+
+func vectorLiteral(values []float32) string {
+	parts := make([]string, len(values))
+	for i, v := range values {
+		parts[i] = strconv.FormatFloat(float64(v), 'f', -1, 32)
+	}
+	return "[" + strings.Join(parts, ",") + "]"
 }
 
 func isUniqueViolation(err error) bool {

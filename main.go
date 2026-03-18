@@ -14,6 +14,7 @@ import (
 
 	"github.com/joho/godotenv"
 	memcore "github.com/rehacktive/memorya/memorya"
+	openai "github.com/sashabaranov/go-openai"
 	log "github.com/sirupsen/logrus"
 
 	"naima/internal/agent"
@@ -93,7 +94,15 @@ func main() {
 		fmt.Fprintln(os.Stderr, err.Error())
 		os.Exit(1)
 	}
-	pkbStorage, err := pkb.NewStorage(ctx, pgvectorDSN())
+	pkbStorage, err := pkb.NewStorage(ctx, pgvectorDSN(), pkb.Config{
+		Embedder:            newPKBEmbeddingGenerator(client),
+		EmbeddingModel:      llmConfig.EmbeddingModel,
+		ChunkSize:           envInt("NAIMA_PKB_CHUNK_SIZE", 2000),
+		VectorDims:          envInt("NAIMA_PGVECTOR_EMBEDDING_DIMS", 0),
+		RetrievalDocLimit:   envInt("NAIMA_PKB_RETRIEVAL_DOC_LIMIT", 3),
+		RetrievalChunkLimit: envInt("NAIMA_PKB_RETRIEVAL_CHUNK_LIMIT", 4),
+		RetrievalThreshold:  envFloat("NAIMA_PKB_RETRIEVAL_THRESHOLD", 0.35),
+	})
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err.Error())
 		os.Exit(1)
@@ -123,6 +132,7 @@ func main() {
 		llmConfig.Model,
 		llmConfig.EmbeddingModel,
 		memoryInstance,
+		pkbStorage,
 		toolset,
 	)
 	taskManager.SetAgent(agentInstance)
@@ -270,6 +280,46 @@ func taskLocation() *time.Location {
 		return time.UTC
 	}
 	return loc
+}
+
+func newPKBEmbeddingGenerator(client *openai.Client) pkb.EmbeddingGenerator {
+	if client == nil {
+		return nil
+	}
+	return func(ctx context.Context, inputs []string, model string) ([][]float32, error) {
+		resp, err := client.CreateEmbeddings(ctx, openai.EmbeddingRequest{
+			Input: inputs,
+			Model: openai.EmbeddingModel(model),
+		})
+		if err != nil {
+			return nil, err
+		}
+		out := make([][]float32, len(resp.Data))
+		for _, item := range resp.Data {
+			if item.Index < 0 || item.Index >= len(out) {
+				continue
+			}
+			out[item.Index] = append([]float32(nil), item.Embedding...)
+		}
+		for i := range out {
+			if len(out[i]) == 0 {
+				return nil, fmt.Errorf("embedding response returned no vector for input %d", i)
+			}
+		}
+		return out, nil
+	}
+}
+
+func envFloat(name string, fallback float64) float64 {
+	raw := strings.TrimSpace(os.Getenv(name))
+	if raw == "" {
+		return fallback
+	}
+	v, err := strconv.ParseFloat(raw, 64)
+	if err != nil {
+		return fallback
+	}
+	return v
 }
 
 func envInt(key string, fallback int) int {
