@@ -97,6 +97,40 @@
       width: calc(100% - 380px);
       overflow: hidden;
     }
+    .main-tabs {
+      display: flex;
+      gap: 8px;
+      padding: 10px 10px 0;
+      border-bottom: 1px solid var(--border);
+      background: var(--ops-bg);
+      flex-shrink: 0;
+    }
+    .main-tab {
+      border: 1px solid var(--border);
+      border-bottom: 0;
+      border-radius: 10px 10px 0 0;
+      background: var(--surface-2);
+      color: var(--muted);
+      padding: 8px 12px;
+      font-size: 11px;
+      cursor: pointer;
+      transition: background 160ms ease, color 160ms ease, box-shadow 160ms ease, border-color 160ms ease;
+    }
+    .main-tab.is-active {
+      background: var(--surface);
+      border-color: var(--accent);
+      color: var(--text);
+      box-shadow: inset 0 0 0 1px rgba(61, 242, 224, 0.22), inset 0 -2px 0 var(--accent);
+    }
+    .main-tab-panel {
+      display: none !important;
+      flex-direction: column;
+      flex: 1;
+      min-height: 0;
+    }
+    .main-tab-panel.is-active {
+      display: flex !important;
+    }
     .ops {
       position: fixed;
       right: 0;
@@ -413,17 +447,6 @@
       text-align: left;
       margin-bottom: 6px;
     }
-    .pkb-launch {
-      width: 100%;
-      border: 1px solid var(--border);
-      border-radius: 8px;
-      background: var(--surface-2);
-      color: var(--text);
-      padding: 10px 12px;
-      font-size: 11px;
-      cursor: pointer;
-      text-align: left;
-    }
     .is-hidden {
       display: none !important;
     }
@@ -591,13 +614,14 @@
       flex-shrink: 0;
     }
     .pkb-overlay {
-      position: fixed;
-      inset: 0;
-      background: rgba(6, 10, 16, 0.92);
-      backdrop-filter: blur(8px);
-      z-index: 20;
-      display: flex;
-      padding: 18px;
+      display: none;
+      flex: 1;
+      min-height: 0;
+      padding: 12px;
+      background: transparent;
+    }
+    .pkb-overlay.is-active {
+      display: flex !important;
     }
     .pkb-shell {
       width: 100%;
@@ -988,6 +1012,9 @@
       .layout {
         height: auto;
       }
+      .main-tab-panel {
+        min-height: 420px;
+      }
       .pkb-overlay {
         padding: 10px;
       }
@@ -1005,28 +1032,62 @@
 <body>
   <div class="layout">
   <div class="app">
-    <div id="chatScope" class="chat-scope is-hidden">
-      <div class="chat-scope-main">
-        <p class="chat-scope-title">Document chat scope</p>
-        <p id="chatScopeSummary" class="chat-scope-summary"></p>
-        <p id="chatScopeDocs" class="chat-scope-docs"></p>
+    <div class="main-tabs">
+      <button id="chatTabBtn" class="main-tab is-active" type="button">Chat</button>
+      <button id="pkbTabBtn" class="main-tab" type="button">Personal knowledge base</button>
+    </div>
+    <div id="chatTabPanel" class="main-tab-panel is-active">
+      <div id="chatScope" class="chat-scope is-hidden">
+        <div class="chat-scope-main">
+          <p class="chat-scope-title">Document chat scope</p>
+          <p id="chatScopeSummary" class="chat-scope-summary"></p>
+          <p id="chatScopeDocs" class="chat-scope-docs"></p>
+        </div>
+        <button id="chatScopeClear" class="chat-scope-clear" type="button">Clear</button>
       </div>
-      <button id="chatScopeClear" class="chat-scope-clear" type="button">Clear</button>
+      <div id="messages" class="messages"></div>
+      <div class="composer">
+        <button id="ingestBtn" class="composer-action" type="button">Ingest</button>
+        <textarea id="input" placeholder="Type a message..."></textarea>
+        <button id="send" class="send">Send</button>
+      </div>
+      <div id="status" class="status"></div>
     </div>
-    <div id="messages" class="messages"></div>
-    <div class="composer">
-      <button id="ingestBtn" class="composer-action" type="button">Ingest</button>
-      <textarea id="input" placeholder="Type a message..."></textarea>
-      <button id="send" class="send">Send</button>
+    <div id="pkbOverlay" class="pkb-overlay main-tab-panel">
+      <div class="pkb-shell">
+        <div class="pkb-stage">
+          <div class="pkb-toolbar">
+            <span id="pkbSummary" class="pkb-badge">Personal knowledge base</span>
+            <div class="pkb-toolbar-group">
+              <button id="pkbZoomIn" type="button">Zoom in</button>
+              <button id="pkbZoomOut" type="button">Zoom out</button>
+              <button id="pkbRefresh" type="button">Refresh</button>
+            </div>
+          </div>
+          <div id="pkbCanvas" class="pkb-canvas"></div>
+        </div>
+        <div class="pkb-panel">
+          <div class="pkb-panel-head">
+            <h3>Topics Space</h3>
+            <button id="pkbClose" class="pkb-close" type="button">Close</button>
+          </div>
+          <div class="pkb-panel-body">
+            <div id="pkbStats" class="pkb-stat-grid"></div>
+            <div id="pkbDetail" class="pkb-card">
+              <h4>Selection</h4>
+              <p>Pick a building or document node to inspect it.</p>
+            </div>
+            <div id="pkbDocuments" class="pkb-doc-list"></div>
+          </div>
+        </div>
+      </div>
     </div>
-    <div id="status" class="status"></div>
   </div>
   <aside class="ops">
     <div class="brand-panel">
       <p class="brand-name">N.A.I.M.A.<br/>next AI modular agent</p>
       <img class="brand-logo" src="/ui/logo2.png" alt="Naima logo">
     </div>
-    <button id="openTopicsView" class="pkb-launch" type="button">Personal knowledge base</button>
     <div class="settings-panel section-panel">
       <div class="settings-head">
         <h3>Settings</h3>
@@ -1068,35 +1129,6 @@
       <ul id="opsList" class="ops-list"></ul>
     </div>
   </aside>
-  </div>
-  <div id="pkbOverlay" class="pkb-overlay is-hidden">
-    <div class="pkb-shell">
-      <div class="pkb-stage">
-        <div class="pkb-toolbar">
-          <span id="pkbSummary" class="pkb-badge">Personal knowledge base</span>
-          <div class="pkb-toolbar-group">
-            <button id="pkbZoomIn" type="button">Zoom in</button>
-            <button id="pkbZoomOut" type="button">Zoom out</button>
-            <button id="pkbRefresh" type="button">Refresh</button>
-          </div>
-        </div>
-        <div id="pkbCanvas" class="pkb-canvas"></div>
-      </div>
-      <div class="pkb-panel">
-        <div class="pkb-panel-head">
-          <h3>Topics Space</h3>
-          <button id="pkbClose" class="pkb-close" type="button">Close</button>
-        </div>
-        <div class="pkb-panel-body">
-          <div id="pkbStats" class="pkb-stat-grid"></div>
-          <div id="pkbDetail" class="pkb-card">
-            <h4>Selection</h4>
-            <p>Pick a building or document node to inspect it.</p>
-          </div>
-          <div id="pkbDocuments" class="pkb-doc-list"></div>
-        </div>
-      </div>
-    </div>
   </div>
   <div id="ingestDialog" class="dialog-backdrop is-hidden">
     <div class="dialog">
@@ -1140,6 +1172,9 @@
   <script src="https://unpkg.com/three@0.160.0/build/three.min.js"></script>
   <script>
     const ingestBtnEl = document.getElementById("ingestBtn");
+    const chatTabBtnEl = document.getElementById("chatTabBtn");
+    const pkbTabBtnEl = document.getElementById("pkbTabBtn");
+    const chatTabPanelEl = document.getElementById("chatTabPanel");
     const tokenEl = document.getElementById("token");
     const saveTokenBtn = document.getElementById("saveToken");
     const inputEl = document.getElementById("input");
@@ -1161,7 +1196,6 @@
     const toolsPanelEl = document.querySelector(".tools-panel");
     const toolsListEl = document.getElementById("toolsList");
     const toolsCollapseEl = document.getElementById("toolsCollapse");
-    const openTopicsViewEl = document.getElementById("openTopicsView");
     const memoryPanelEl = document.querySelector(".memory-panel");
     const memoryListEl = document.getElementById("memoryList");
     const memoryCollapseEl = document.getElementById("memoryCollapse");
@@ -1214,6 +1248,7 @@
     const toolsCollapsedKey = "naima_tools_collapsed";
     const opsCollapsedKey = "naima_ops_collapsed";
     const memoryCollapsedKey = "naima_memory_collapsed";
+    const mainTabKey = "naima_main_tab";
     tokenEl.value = localStorage.getItem(tokenKey) || "";
     const savedTheme = normalizeTheme(localStorage.getItem(themeKey) || "void");
     themeSelectEl.value = savedTheme;
@@ -1268,12 +1303,13 @@
     });
     ingestSubmitEl.addEventListener("click", submitIngest);
     chatScopeClearEl.addEventListener("click", clearChatScope);
+    chatTabBtnEl.addEventListener("click", () => setMainTab("chat"));
+    pkbTabBtnEl.addEventListener("click", () => openPKBView(true));
     toolsCollapseEl.addEventListener("click", () => {
       const next = !toolsListEl.classList.contains("is-hidden");
       applyToolsCollapsed(next);
       localStorage.setItem(toolsCollapsedKey, next ? "1" : "0");
     });
-    openTopicsViewEl.addEventListener("click", () => openPKBView(true));
     opsCollapseEl.addEventListener("click", () => {
       const next = !opsListEl.classList.contains("is-hidden");
       applyOpsCollapsed(next);
@@ -1298,26 +1334,31 @@
       pkbSceneState.orbit.radius = Math.min(54, pkbSceneState.orbit.radius + 2.5);
     });
     window.addEventListener("resize", () => {
-      if (!pkbOverlayEl.classList.contains("is-hidden")) {
+      if (currentMainTab() === "pkb") {
         resizePKBRenderer();
       }
     });
     pkbShellEl.addEventListener("transitionrun", () => {
-      if (!pkbOverlayEl.classList.contains("is-hidden")) {
+      if (currentMainTab() === "pkb") {
         startPKBResizeLoop();
       }
     });
     pkbShellEl.addEventListener("transitionend", () => {
-      if (!pkbOverlayEl.classList.contains("is-hidden")) {
+      if (currentMainTab() === "pkb") {
         resizePKBRenderer();
       }
       stopPKBResizeLoop();
     });
     document.addEventListener("keydown", (event) => {
-      if (event.key === "Escape" && !pkbOverlayEl.classList.contains("is-hidden")) {
+      if (event.key === "Escape" && currentMainTab() === "pkb") {
         closePKBView();
       }
     });
+    if (localStorage.getItem(mainTabKey) === "pkb" && tokenEl.value.trim()) {
+      openPKBView(true);
+    } else {
+      setMainTab("chat");
+    }
 
     function addBubble(role, text) {
       const row = document.createElement("div");
@@ -1395,6 +1436,22 @@
 
     function setStatus(text) {
       statusEl.textContent = text || "";
+    }
+
+    function currentMainTab() {
+      return pkbOverlayEl.classList.contains("is-active") ? "pkb" : "chat";
+    }
+
+    function setMainTab(tab) {
+      const next = tab === "pkb" ? "pkb" : "chat";
+      chatTabBtnEl.classList.toggle("is-active", next === "chat");
+      pkbTabBtnEl.classList.toggle("is-active", next === "pkb");
+      chatTabPanelEl.classList.toggle("is-active", next === "chat");
+      pkbOverlayEl.classList.toggle("is-active", next === "pkb");
+      localStorage.setItem(mainTabKey, next);
+      if (next === "pkb") {
+        requestAnimationFrame(resizePKBRenderer);
+      }
     }
 
     function resetPKBChatSelection() {
@@ -1993,7 +2050,7 @@
       renderer.domElement.addEventListener("click", onPKBClick);
       if (typeof ResizeObserver !== "undefined") {
         pkbSceneState.resizeObserver = new ResizeObserver(() => {
-          if (!pkbOverlayEl.classList.contains("is-hidden")) {
+          if (currentMainTab() === "pkb") {
             resizePKBRenderer();
           }
         });
@@ -2017,7 +2074,7 @@
     function startPKBResizeLoop() {
       stopPKBResizeLoop();
       const tick = () => {
-        if (pkbOverlayEl.classList.contains("is-hidden")) {
+        if (currentMainTab() !== "pkb") {
           stopPKBResizeLoop();
           return;
         }
@@ -2270,7 +2327,7 @@
         }
         const payload = await fetchPKBGraph();
         const topics = Array.isArray(payload.topics) ? payload.topics : [];
-        pkbOverlayEl.classList.remove("is-hidden");
+        setMainTab("pkb");
         pkbShellEl.classList.remove("has-selection");
         buildPKBScene(topics);
         resizePKBRenderer();
@@ -2425,7 +2482,7 @@
         closeIngestDialog();
         addOp((mode === "file" ? "document" : "url") + " ingested into personal knowledge base");
         setStatus("Content ingested via " + (result.ingest_method || "unknown") + ".");
-        if (!pkbOverlayEl.classList.contains("is-hidden")) {
+        if (currentMainTab() === "pkb") {
           await openPKBView(true);
         }
       } catch (err) {
@@ -2441,14 +2498,13 @@
     function closePKBView() {
       stopPKBResizeLoop();
       resetPKBChatSelection();
-      pkbOverlayEl.classList.add("is-hidden");
       pkbShellEl.classList.remove("has-selection");
+      setMainTab("chat");
       addOp("topics view closed");
     }
 
     function applyToolsCollapsed(collapsed) {
       toolsListEl.classList.toggle("is-hidden", !!collapsed);
-      openTopicsViewEl.classList.toggle("is-hidden", !!collapsed);
       toolsPanelEl.classList.toggle("collapsed", !!collapsed);
       toolsCollapseEl.textContent = collapsed ? "Show" : "Hide";
     }
