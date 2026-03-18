@@ -153,6 +153,65 @@ curl -sS -X POST "http://localhost:8080/api/tools" \
   -d '{"name":"web_search","enabled":false}'
 ```
 
+### Personal Knowledge Base endpoints
+
+Get PKB graph:
+
+```sh
+curl -sS "http://localhost:8080/api/pkb/graph" \
+  -H "Authorization: Bearer $NAIMA_API_TOKEN"
+```
+
+Ingest a URL into an existing topic:
+
+```sh
+curl -sS -X POST "http://localhost:8080/api/pkb/ingest" \
+  -H "Authorization: Bearer $NAIMA_API_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"topic_id":1,"url":"https://example.com/article"}'
+```
+
+Ingest a URL while creating a new topic:
+
+```sh
+curl -sS -X POST "http://localhost:8080/api/pkb/ingest" \
+  -H "Authorization: Bearer $NAIMA_API_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"new_topic":"Golang","url":"https://go.dev/doc/"}'
+```
+
+Upload a file into an existing topic:
+
+```sh
+curl -sS -X POST "http://localhost:8080/api/pkb/ingest/file" \
+  -H "Authorization: Bearer $NAIMA_API_TOKEN" \
+  -F "topic_id=1" \
+  -F "file=@/absolute/path/to/file.pdf"
+```
+
+Upload a file while creating a new topic:
+
+```sh
+curl -sS -X POST "http://localhost:8080/api/pkb/ingest/file" \
+  -H "Authorization: Bearer $NAIMA_API_TOKEN" \
+  -F "new_topic=Research" \
+  -F "file=@/absolute/path/to/file.pdf"
+```
+
+Delete a topic:
+
+```sh
+curl -sS -X DELETE "http://localhost:8080/api/pkb/topics/1" \
+  -H "Authorization: Bearer $NAIMA_API_TOKEN"
+```
+
+Delete a document:
+
+```sh
+curl -sS -X DELETE "http://localhost:8080/api/pkb/documents/12" \
+  -H "Authorization: Bearer $NAIMA_API_TOKEN"
+```
+
 ## Web UI
 
 Naima serves a built-in web UI directly from disk at:
