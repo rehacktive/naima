@@ -1177,6 +1177,7 @@
     <div class="tools-panel section-panel">
       <div class="tools-head">
         <p class="tools-title">Tools</p>
+        <button id="toolsToggleAll" class="tools-collapse" type="button">Enable All</button>
         <button id="toolsCollapse" class="tools-collapse" type="button">Hide</button>
       </div>
       <div id="toolsList" class="tools-list"></div>
@@ -1263,6 +1264,7 @@
     const toolsPanelEl = document.querySelector(".tools-panel");
     const toolsListEl = document.getElementById("toolsList");
     const toolsCollapseEl = document.getElementById("toolsCollapse");
+    const toolsToggleAllEl = document.getElementById("toolsToggleAll");
     const memoryPanelEl = document.querySelector(".memory-panel");
     const memoryListEl = document.getElementById("memoryList");
     const memoryCollapseEl = document.getElementById("memoryCollapse");
@@ -1290,6 +1292,7 @@
     const ingestSubmitEl = document.getElementById("ingestSubmit");
     const ingestStatusEl = document.getElementById("ingestStatus");
     let newConversationOnNextSend = true;
+    let currentTools = [];
     let pkbChatSelection = null;
     let chatScopeState = null;
     const pkbSceneState = {
@@ -1376,6 +1379,27 @@
       const next = !toolsListEl.classList.contains("is-hidden");
       applyToolsCollapsed(next);
       localStorage.setItem(toolsCollapsedKey, next ? "1" : "0");
+    });
+    toolsToggleAllEl.addEventListener("click", async () => {
+      const targetEnabled = toolsToggleAllEl.textContent === "Enable All";
+      toolsToggleAllEl.disabled = true;
+      try {
+        for (const tool of currentTools) {
+          if (tool.enabled !== targetEnabled) {
+            await fetch("/api/tools", {
+              method: "POST",
+              headers: authHeaders(),
+              body: JSON.stringify({ name: tool.name, enabled: targetEnabled })
+            });
+          }
+        }
+        await loadTools();
+        addOp(targetEnabled ? "all tools enabled" : "all tools disabled");
+      } catch (err) {
+        setStatus("Tool update failed: " + (err?.message || String(err)));
+      } finally {
+        toolsToggleAllEl.disabled = false;
+      }
     });
     opsCollapseEl.addEventListener("click", () => {
       const next = !opsListEl.classList.contains("is-hidden");
@@ -1727,14 +1751,19 @@
     }
 
     function renderTools(tools) {
+      currentTools = tools;
       toolsListEl.innerHTML = "";
       if (!tools.length) {
+        toolsToggleAllEl.style.display = "none";
         const empty = document.createElement("div");
         empty.className = "tool-item";
         empty.textContent = tokenEl.value.trim() ? "No tools available." : "Save token to load tools.";
         toolsListEl.appendChild(empty);
         return;
       }
+      toolsToggleAllEl.style.display = "";
+      const allEnabled = tools.every(t => t.enabled);
+      toolsToggleAllEl.textContent = allEnabled ? "Disable All" : "Enable All";
       for (const tool of tools) {
         const row = document.createElement("label");
         row.className = "tool-item";
