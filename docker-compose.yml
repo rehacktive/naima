@@ -12,12 +12,15 @@ services:
         condition: service_healthy
       tika:
         condition: service_started
+      bash-tool:
+        condition: service_healthy
     env_file:
       - .env
     environment:
       NAIMA_PGVECTOR_DSN: postgres://naima:naima@pgvector:5432/naima?sslmode=disable
       NAIMA_SEARX_URL: http://searxng:8080
       NAIMA_TIKA_URL: http://tika:9998
+      NAIMA_BASH_TOOL_URL: http://bash-tool:8080
       NAIMA_SESSION_FILE: /data/.naima_session.json
     volumes:
       - naima_data:/data
@@ -88,8 +91,22 @@ services:
     container_name: naima-tika
     restart: unless-stopped
 
+  bash-tool:
+    build:
+      context: ./docker/bash-tool
+    container_name: naima-bash-tool
+    restart: unless-stopped
+    volumes:
+      - bash_tool_data:/workspace
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O - http://127.0.0.1:8080/health >/dev/null 2>&1 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+
 volumes:
   pgvector_data:
   naima_data:
   caddy_data:
   caddy_config:
+  bash_tool_data:

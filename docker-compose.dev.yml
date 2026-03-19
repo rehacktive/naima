@@ -57,5 +57,21 @@ services:
     ports:
       - "9998:9998"
 
+  bash-tool:
+    build:
+      context: ./docker/bash-tool
+    container_name: naima-bash-tool-dev
+    restart: unless-stopped
+    ports:
+      - "8090:8080"
+    volumes:
+      - bash_tool_dev_data:/workspace
+    healthcheck:
+      test: ["CMD-SHELL", "wget -q -O - http://127.0.0.1:8080/health >/dev/null 2>&1 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 20
+
 volumes:
   pgvector_dev_data:
+  bash_tool_dev_data:

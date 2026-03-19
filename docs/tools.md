@@ -15,6 +15,7 @@ Naima loads tool guidance dynamically:
 | `news_digest` | curated news digest over SearxNG news results |
 | `personal_knowledge_base` | CRUD over topics/documents plus ingestion and temporal search |
 | `pkb_retrieve` | explicit semantic retrieval over ingested PKB documents and chunks |
+| `bash` | bash execution inside an isolated Debian sidecar container |
 | `playwright` | browser automation and page extraction |
 | `task_scheduler` | persistent alarms and scheduled agent tasks |
 | `long_memory` | semantic recall and LLM summary of past conversation |
@@ -74,6 +75,11 @@ File ingestion:
 - semantic retrieval over `pkb_embeddings`
 - embeds the query and returns nearest PKB documents plus relevant chunks
 - use when the answer should come from ingested PKB content rather than conversation memory
+
+### `bash`
+- executes bash commands in a Debian sidecar container
+- supports package installation and persistent workspace files inside the container
+- returns stdout, stderr, exit code, timeout status, and working directory
 
 ### `playwright`
 Supports operations such as:

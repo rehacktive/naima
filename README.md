@@ -10,6 +10,7 @@ Naima combines:
 - personal knowledge base ingestion for URLs, notes, and files
 - semantic retrieval over PKB document chunks
 - browser automation through Playwright
+- Linux shell execution inside an isolated Debian sidecar
 - web/news search through SearxNG
 - scheduled alarms and agent tasks
 - Telegram delivery for results and audio workflows
@@ -37,6 +38,7 @@ Services started:
 - `redis`
 - `searxng`
 - `tika`
+- `bash-tool`
 
 ### Local development services only
 
@@ -51,6 +53,7 @@ Exposed ports:
 - `redis` on `localhost:6379`
 - `searxng` on `localhost:8081`
 - `tika` on `localhost:9998`
+- `bash-tool` on `localhost:8090`
 
 ## Main Features
 
@@ -95,6 +98,7 @@ Important env groups:
 - Memory/pgvector: `NAIMA_MEMORY_*`, `NAIMA_PGVECTOR_*`
 - PKB/Tika: `NAIMA_TIKA_*`, `NAIMA_PKB_*`
 - Playwright: `NAIMA_PLAYWRIGHT_*`
+- Bash tool: `NAIMA_BASH_TOOL_URL`
 - Tasks: `NAIMA_TASK_TIMEZONE`
 
 ## Documentation

@@ -559,6 +559,73 @@
     .ai .bubble {
       background: var(--bubble-ai);
     }
+    .bubble.markdown {
+      white-space: normal;
+    }
+    .bubble.markdown h1,
+    .bubble.markdown h2,
+    .bubble.markdown h3,
+    .bubble.markdown h4,
+    .bubble.markdown h5,
+    .bubble.markdown h6 {
+      margin: 0 0 0.55em;
+      color: var(--text);
+      line-height: 1.25;
+    }
+    .bubble.markdown h1 { font-size: 1.14em; }
+    .bubble.markdown h2 { font-size: 1.08em; }
+    .bubble.markdown h3 { font-size: 1.03em; }
+    .bubble.markdown p {
+      margin: 0 0 0.72em;
+    }
+    .bubble.markdown p:last-child,
+    .bubble.markdown ul:last-child,
+    .bubble.markdown ol:last-child,
+    .bubble.markdown pre:last-child,
+    .bubble.markdown blockquote:last-child {
+      margin-bottom: 0;
+    }
+    .bubble.markdown ul,
+    .bubble.markdown ol {
+      margin: 0 0 0.8em 1.25em;
+      padding: 0;
+    }
+    .bubble.markdown li {
+      margin: 0 0 0.25em;
+      line-height: 1.45;
+    }
+    .bubble.markdown li:last-child {
+      margin-bottom: 0;
+    }
+    .bubble.markdown code {
+      background: rgba(255, 255, 255, 0.06);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 6px;
+      padding: 0.05em 0.32em;
+      font-size: 0.95em;
+    }
+    .bubble.markdown pre {
+      margin: 0 0 0.8em;
+      padding: 0.8em;
+      overflow-x: auto;
+      border-radius: 8px;
+      border: 1px solid var(--border);
+      background: rgba(0, 0, 0, 0.18);
+    }
+    .bubble.markdown pre code {
+      border: 0;
+      background: transparent;
+      padding: 0;
+    }
+    .bubble.markdown blockquote {
+      margin: 0 0 0.8em;
+      padding-left: 0.85em;
+      border-left: 2px solid var(--accent-2);
+      color: var(--muted);
+    }
+    .bubble.markdown strong {
+      color: var(--text);
+    }
     .composer {
       border-top: 1px solid var(--border);
       background: var(--ops-bg);
@@ -1395,42 +1462,68 @@
         .replace(/'/g, "&#39;");
     }
 
-    function markdownToHtml(markdown) {
-      let html = escapeHtml(markdown || "");
-
-      html = html.replace(/```([\s\S]*?)```/g, (_, code) => {
-        return "<pre><code>" + code.replace(/\n$/, "") + "</code></pre>";
-      });
-      html = html.replace(/^######\s+(.+)$/gm, "<h6>$1</h6>");
-      html = html.replace(/^#####\s+(.+)$/gm, "<h5>$1</h5>");
-      html = html.replace(/^####\s+(.+)$/gm, "<h4>$1</h4>");
-      html = html.replace(/^###\s+(.+)$/gm, "<h3>$1</h3>");
-      html = html.replace(/^##\s+(.+)$/gm, "<h2>$1</h2>");
-      html = html.replace(/^#\s+(.+)$/gm, "<h1>$1</h1>");
+    function renderInlineMarkdown(text) {
+      let html = escapeHtml(text || "");
       html = html.replace(/`([^`\n]+)`/g, "<code>$1</code>");
       html = html.replace(/\*\*([^*\n]+)\*\*/g, "<strong>$1</strong>");
       html = html.replace(/\*([^*\n]+)\*/g, "<em>$1</em>");
       html = html.replace(/~~([^~\n]+)~~/g, "<del>$1</del>");
       html = html.replace(/\[([^\]]+)\]\((https?:\/\/[^\s)]+)\)/g, '<a href="$2" target="_blank" rel="noopener noreferrer">$1</a>');
-      html = html.replace(/^&gt;\s?(.*)$/gm, "<blockquote>$1</blockquote>");
-      html = html.replace(/^\s*-\s+(.*)$/gm, "<li>$1</li>");
-      html = html.replace(/^\s*\d+\.\s+(.*)$/gm, "<li>$1</li>");
-      html = html.replace(/(<li>[\s\S]*?<\/li>)/g, "<ul>$1</ul>");
-      html = html.replace(/(?:^|\n)([^<\n][^\n]*)(?=\n|$)/g, (match, line) => {
-        const trimmed = line.trim();
-        if (!trimmed) return match;
-        if (/^<\/?(h\d|ul|ol|li|pre|blockquote|p|code)/.test(trimmed)) return match;
-        return match.replace(line, "<p>" + trimmed + "</p>");
-      });
-      html = html.replace(/\n/g, "<br>");
-      html = html.replace(/<\/ul>\s*<ul>/g, "");
-      html = html.replace(/<\/ol>\s*<ol>/g, "");
-      html = html.replace(/<\/p><br><p>/g, "</p><p>");
-
       return html;
     }
 
+    function markdownToHtml(markdown) {
+      const source = String(markdown || "")
+        .replace(/\r\n/g, "\n")
+        .replace(/\n{3,}/g, "\n\n");
+      const codeBlocks = [];
+      const normalized = source.replace(/```([\s\S]*?)```/g, (_, code) => {
+        const token = `@@CODEBLOCK_${codeBlocks.length}@@`;
+        codeBlocks.push("<pre><code>" + escapeHtml(code).replace(/\n$/, "") + "</code></pre>");
+        return token;
+      });
+
+      const blocks = normalized.split(/\n\s*\n/);
+      const htmlBlocks = [];
+      for (const block of blocks) {
+        const trimmed = block.trim();
+        if (!trimmed) {
+          continue;
+        }
+        if (/^@@CODEBLOCK_\d+@@$/.test(trimmed)) {
+          htmlBlocks.push(trimmed);
+          continue;
+        }
+
+        const lines = trimmed.split("\n").map((line) => line.trimEnd());
+        if (lines.every((line) => /^\s*[-*]\s+/.test(line))) {
+          htmlBlocks.push("<ul>" + lines.map((line) => "<li>" + renderInlineMarkdown(line.replace(/^\s*[-*]\s+/, "")) + "</li>").join("") + "</ul>");
+          continue;
+        }
+        if (lines.every((line) => /^\s*\d+\.\s+/.test(line))) {
+          htmlBlocks.push("<ol>" + lines.map((line) => "<li>" + renderInlineMarkdown(line.replace(/^\s*\d+\.\s+/, "")) + "</li>").join("") + "</ol>");
+          continue;
+        }
+        if (lines.every((line) => /^>\s?/.test(line))) {
+          htmlBlocks.push("<blockquote>" + lines.map((line) => renderInlineMarkdown(line.replace(/^>\s?/, ""))).join("<br>") + "</blockquote>");
+          continue;
+        }
+        if (lines.length === 1) {
+          const line = lines[0].trim();
+          const heading = line.match(/^(#{1,6})\s+(.*)$/);
+          if (heading) {
+            htmlBlocks.push("<h" + heading[1].length + ">" + renderInlineMarkdown(heading[2]) + "</h" + heading[1].length + ">");
+            continue;
+          }
+        }
+        htmlBlocks.push("<p>" + lines.map((line) => renderInlineMarkdown(line.trim())).join("<br>") + "</p>");
+      }
+
+      return htmlBlocks.join("").replace(/@@CODEBLOCK_(\d+)@@/g, (_, index) => codeBlocks[Number(index)] || "");
+    }
+
     function renderMarkdownBubble(bubble, markdown) {
+      bubble.classList.add("markdown");
       bubble.innerHTML = markdownToHtml(markdown);
     }
 

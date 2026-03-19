@@ -116,6 +116,7 @@ func main() {
 		tools.NewNewsDigestTool(searxURL()),
 		tools.NewPersonalKnowledgeBaseTool(pkbStorage, pkbIngestConfig()),
 		tools.NewPKBRetrieveTool(client, llmConfig.EmbeddingModel, pkbStorage),
+		tools.NewBashTool(bashToolURL()),
 		tools.NewPlaywrightTool(playwrightHeadless(), envInt("NAIMA_PLAYWRIGHT_TIMEOUT_MS", 30000)),
 		tools.NewTaskSchedulerTool(taskManager),
 		tools.NewLongMemoryTool(client, llmConfig.Model, llmConfig.EmbeddingModel, memStore),
@@ -197,6 +198,14 @@ func searxURL() string {
 	}
 
 	return "http://localhost:8081"
+}
+
+func bashToolURL() string {
+	if p := strings.TrimSpace(os.Getenv("NAIMA_BASH_TOOL_URL")); p != "" {
+		return p
+	}
+
+	return ""
 }
 
 func tikaURL() string {
