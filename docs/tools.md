@@ -14,6 +14,7 @@ Naima loads tool guidance dynamically:
 | `web_search` | generic search over local SearxNG |
 | `news_digest` | curated news digest over SearxNG news results |
 | `personal_knowledge_base` | CRUD over topics/documents plus ingestion and temporal search |
+| `pkb_retrieve` | explicit semantic retrieval over ingested PKB documents and chunks |
 | `playwright` | browser automation and page extraction |
 | `task_scheduler` | persistent alarms and scheduled agent tasks |
 | `long_memory` | semantic recall and LLM summary of past conversation |
@@ -68,6 +69,11 @@ File ingestion:
 - files are stored locally
 - text is extracted through Tika
 - extracted content is saved as a PKB document
+
+### `pkb_retrieve`
+- semantic retrieval over `pkb_embeddings`
+- embeds the query and returns nearest PKB documents plus relevant chunks
+- use when the answer should come from ingested PKB content rather than conversation memory
 
 ### `playwright`
 Supports operations such as:

@@ -115,6 +115,7 @@ func main() {
 		tools.NewWebSearchTool(searxURL()),
 		tools.NewNewsDigestTool(searxURL()),
 		tools.NewPersonalKnowledgeBaseTool(pkbStorage, pkbIngestConfig()),
+		tools.NewPKBRetrieveTool(client, llmConfig.EmbeddingModel, pkbStorage),
 		tools.NewPlaywrightTool(playwrightHeadless(), envInt("NAIMA_PLAYWRIGHT_TIMEOUT_MS", 30000)),
 		tools.NewTaskSchedulerTool(taskManager),
 		tools.NewLongMemoryTool(client, llmConfig.Model, llmConfig.EmbeddingModel, memStore),
