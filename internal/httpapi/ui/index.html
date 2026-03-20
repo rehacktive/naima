@@ -673,6 +673,10 @@
       background: #9abbe0;
       cursor: not-allowed;
     }
+    .send.send-stop {
+      background: #b54c4c;
+      color: #fff3f3;
+    }
     .status {
       font-size: 10px;
       color: var(--muted);
@@ -1292,6 +1296,8 @@
     const ingestSubmitEl = document.getElementById("ingestSubmit");
     const ingestStatusEl = document.getElementById("ingestStatus");
     let newConversationOnNextSend = true;
+    let currentMessageController = null;
+    let isSendingMessage = false;
     let currentTools = [];
     let pkbChatSelection = null;
     let chatScopeState = null;
@@ -1336,11 +1342,19 @@
       applyTheme(value);
     });
 
-    sendBtn.addEventListener("click", sendMessage);
+    sendBtn.addEventListener("click", () => {
+      if (isSendingMessage) {
+        stopCurrentMessage();
+        return;
+      }
+      sendMessage();
+    });
     inputEl.addEventListener("keydown", (e) => {
       if (e.key === "Enter" && !e.shiftKey) {
         e.preventDefault();
-        sendMessage();
+        if (!isSendingMessage) {
+          sendMessage();
+        }
       }
     });
     if (tokenEl.value.trim()) {
@@ -2663,7 +2677,27 @@
       settingsCollapseEl.textContent = collapsed ? "Show" : "Hide";
     }
 
+    function setMessageSendingState(sending) {
+      isSendingMessage = !!sending;
+      sendBtn.disabled = false;
+      sendBtn.textContent = sending ? "Stop" : "Send";
+      sendBtn.classList.toggle("send-stop", sending);
+      inputEl.disabled = false;
+    }
+
+    function stopCurrentMessage() {
+      if (currentMessageController) {
+        currentMessageController.abort();
+        addOp("request cancellation requested");
+        setStatus("Canceling...");
+      }
+    }
+
     async function sendMessage() {
+      if (isSendingMessage) {
+        return;
+      }
+
       const token = tokenEl.value.trim();
       const message = inputEl.value.trim();
       if (!token) {
@@ -2677,11 +2711,12 @@
       addBubble("user", message);
       addOp("message queued");
       inputEl.value = "";
-      sendBtn.disabled = true;
+      setMessageSendingState(true);
       setStatus("Streaming response...");
 
       const aiBubble = addBubble("ai", "");
       let aiRaw = "";
+      currentMessageController = new AbortController();
       const payload = {
         message: buildScopedMessage(message),
         new_conversation: newConversationOnNextSend
@@ -2692,7 +2727,8 @@
         const resp = await fetch("/api/messages/stream", {
           method: "POST",
           headers: authHeaders(),
-          body: JSON.stringify(payload)
+          body: JSON.stringify(payload),
+          signal: currentMessageController.signal
         });
 
         if (!resp.ok || !resp.body) {
@@ -2736,9 +2772,19 @@
           loadMemoryStatus();
         }
       } catch (err) {
-        setStatus("Stream error: " + (err?.message || String(err)));
+        if (err?.name === "AbortError") {
+          addOp("request canceled");
+          if (!aiRaw) {
+            aiRaw = "Canceled.";
+            renderMarkdownBubble(aiBubble, aiRaw);
+          }
+          setStatus("Canceled.");
+        } else {
+          setStatus("Stream error: " + (err?.message || String(err)));
+        }
       } finally {
-        sendBtn.disabled = false;
+        currentMessageController = null;
+        setMessageSendingState(false);
       }
     }
 

@@ -112,3 +112,15 @@ Supports:
 ### `telegram_send`
 - sends a text message to the linked Telegram account
 - available only when Telegram is configured
+
+## Default tool state
+
+At startup you can preconfigure which tools are enabled:
+- one env var per tool, using `NAIMA_TOOL_<TOOL_NAME>`
+- supported values: `enabled` or `disabled`
+- if the env var is empty or unset, the tool starts enabled by default
+
+Example:
+- `NAIMA_TOOL_WEB_SEARCH=enabled`
+- `NAIMA_TOOL_PLAYWRIGHT=disabled`
+- `NAIMA_TOOL_BASH=disabled`

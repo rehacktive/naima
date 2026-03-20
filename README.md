@@ -97,6 +97,7 @@ Important env groups:
 - Telegram: `TELEGRAM_BOT_TOKEN`, `NAIMA_TELEGRAM_STREAM`, `NAIMA_TTS_*`
 - Memory/pgvector: `NAIMA_MEMORY_*`, `NAIMA_PGVECTOR_*`
 - PKB/Tika: `NAIMA_TIKA_*`, `NAIMA_PKB_*`
+- Tool defaults: `NAIMA_TOOL_<TOOL_NAME>`
 - Playwright: `NAIMA_PLAYWRIGHT_*`
 - Bash tool: `NAIMA_BASH_TOOL_URL`
 - Tasks: `NAIMA_TASK_TIMEZONE`

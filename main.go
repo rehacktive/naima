@@ -11,6 +11,7 @@ import (
 	"strings"
 	"syscall"
 	"time"
+	"unicode"
 
 	"github.com/joho/godotenv"
 	memcore "github.com/rehacktive/memorya/memorya"
@@ -137,6 +138,7 @@ func main() {
 		pkbStorage,
 		toolset,
 	)
+	applyDefaultToolStates(agentInstance)
 	taskManager.SetAgent(agentInstance)
 	if err := taskManager.Start(ctx); err != nil {
 		fmt.Fprintln(os.Stderr, err.Error())
@@ -244,6 +246,49 @@ func promptPath() string {
 	}
 
 	return "prompt.txt"
+}
+
+func applyDefaultToolStates(agentInstance *agent.Agent) {
+	if agentInstance == nil {
+		return
+	}
+
+	for _, tool := range agentInstance.ListTools() {
+		desired, ok := toolEnabledFromEnv(tool.Name)
+		if !ok {
+			continue
+		}
+		if err := agentInstance.SetToolEnabled(tool.Name, desired); err != nil {
+			log.Warnf("[agent] set default tool state failed name=%s err=%v", tool.Name, err)
+		}
+	}
+}
+
+func toolEnabledFromEnv(toolName string) (bool, bool) {
+	raw := strings.ToLower(strings.TrimSpace(os.Getenv(toolStateEnvKey(toolName))))
+	switch raw {
+	case "":
+		return false, false
+	case "enabled", "enable", "true", "1", "yes", "on":
+		return true, true
+	case "disabled", "disable", "false", "0", "no", "off":
+		return false, true
+	default:
+		log.Warnf("[agent] invalid tool state env %s=%q", toolStateEnvKey(toolName), raw)
+		return false, false
+	}
+}
+
+func toolStateEnvKey(toolName string) string {
+	normalized := strings.Map(func(r rune) rune {
+		switch {
+		case unicode.IsLetter(r) || unicode.IsDigit(r):
+			return unicode.ToUpper(r)
+		default:
+			return '_'
+		}
+	}, strings.TrimSpace(toolName))
+	return "NAIMA_TOOL_" + normalized
 }
 
 func toolPromptsDir() string {
