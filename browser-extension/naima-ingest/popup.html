@@ -8,17 +8,22 @@
 </head>
 <body>
   <main class="card">
-    <h1>Naima Ingest</h1>
+    <div class="head">
+      <h1>Naima Ingest</h1>
+      <button id="settingsToggle" class="toggle" type="button">Hide settings</button>
+    </div>
 
-    <label>
-      <span>Naima URL</span>
-      <input id="serverUrl" type="text" placeholder="http://localhost:8080">
-    </label>
+    <section id="settingsSection" class="settings-section">
+      <label>
+        <span>Naima URL</span>
+        <input id="serverUrl" type="text" placeholder="http://localhost:8080">
+      </label>
 
-    <label>
-      <span>API token</span>
-      <input id="apiToken" type="password" placeholder="NAIMA_API_TOKEN">
-    </label>
+      <label>
+        <span>API token</span>
+        <input id="apiToken" type="password" placeholder="NAIMA_API_TOKEN">
+      </label>
+    </section>
 
     <label>
       <span>Topic</span>

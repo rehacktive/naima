@@ -28,9 +28,27 @@ body {
   gap: 12px;
 }
 
+.head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 10px;
+}
+
 h1 {
   margin: 0;
   font-size: 18px;
+}
+
+.toggle {
+  padding: 8px 10px;
+  font-size: 12px;
+}
+
+.settings-section {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
 }
 
 label {

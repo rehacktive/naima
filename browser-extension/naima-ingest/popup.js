@@ -1,3 +1,5 @@
+const settingsToggleEl = document.getElementById('settingsToggle');
+const settingsSectionEl = document.getElementById('settingsSection');
 const serverUrlEl = document.getElementById('serverUrl');
 const apiTokenEl = document.getElementById('apiToken');
 const topicSelectEl = document.getElementById('topicSelect');
@@ -13,8 +15,8 @@ const storageKeys = {
   apiToken: 'naima_api_token',
   notifyTelegram: 'naima_notify_telegram',
   topicMode: 'naima_topic_mode',
-  topicId: 'naima_topic_id',
-  newTopic: 'naima_new_topic'
+  newTopic: 'naima_new_topic',
+  settingsCollapsed: 'naima_settings_collapsed'
 };
 
 function setStatus(text) {
@@ -36,6 +38,11 @@ function authHeaders(token) {
   };
 }
 
+function applySettingsCollapsed(collapsed) {
+  settingsSectionEl.classList.toggle('hidden', !!collapsed);
+  settingsToggleEl.textContent = collapsed ? 'Show settings' : 'Hide settings';
+}
+
 async function saveSettings() {
   await chrome.storage.sync.set({
     [storageKeys.serverUrl]: serverUrlEl.value.trim(),
@@ -52,12 +59,14 @@ async function loadSettings() {
     [storageKeys.apiToken]: '',
     [storageKeys.notifyTelegram]: true,
     [storageKeys.topicMode]: '',
-    [storageKeys.newTopic]: ''
+    [storageKeys.newTopic]: '',
+    [storageKeys.settingsCollapsed]: false
   });
   serverUrlEl.value = values[storageKeys.serverUrl] || 'http://localhost:8080';
   apiTokenEl.value = values[storageKeys.apiToken] || '';
   notifyTelegramEl.checked = Boolean(values[storageKeys.notifyTelegram]);
   newTopicEl.value = values[storageKeys.newTopic] || '';
+  applySettingsCollapsed(Boolean(values[storageKeys.settingsCollapsed]));
 }
 
 function updateTopicMode() {
@@ -170,6 +179,13 @@ async function ingestCurrentTab() {
   }
 }
 
+settingsToggleEl.addEventListener('click', async () => {
+  const next = !settingsSectionEl.classList.contains('hidden');
+  applySettingsCollapsed(next);
+  await chrome.storage.sync.set({
+    [storageKeys.settingsCollapsed]: next
+  });
+});
 serverUrlEl.addEventListener('change', async () => {
   await saveSettings();
 });
