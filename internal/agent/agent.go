@@ -22,7 +22,7 @@ import (
 	"naima/internal/tools"
 )
 
-const maxToolRounds = 8
+const maxToolRounds = 10
 const maxToolLogChars = 220
 
 type Agent struct {

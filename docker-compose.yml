@@ -14,6 +14,8 @@ services:
         condition: service_started
       bash-tool:
         condition: service_healthy
+      lightpanda:
+        condition: service_started
     env_file:
       - .env
     environment:
@@ -21,6 +23,7 @@ services:
       NAIMA_SEARX_URL: http://searxng:8080
       NAIMA_TIKA_URL: http://tika:9998
       NAIMA_BASH_TOOL_URL: http://bash-tool:8080
+      NAIMA_LIGHTPANDA_URL: http://lightpanda:9222
       NAIMA_SESSION_FILE: /data/.naima_session.json
     volumes:
       - naima_data:/data
@@ -103,6 +106,13 @@ services:
       interval: 10s
       timeout: 5s
       retries: 20
+
+  lightpanda:
+    image: lightpanda/browser:nightly
+    container_name: naima-lightpanda
+    restart: unless-stopped
+    environment:
+      LIGHTPANDA_DISABLE_TELEMETRY: "true"
 
 volumes:
   pgvector_data:
