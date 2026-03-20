@@ -20,6 +20,7 @@ import (
 
 	"naima/internal/agent"
 	"naima/internal/pkb"
+	"naima/internal/telegram"
 )
 
 const defaultAddr = ":8080"
@@ -52,9 +53,11 @@ type toolUpdateRequest struct {
 }
 
 type pkbIngestRequest struct {
-	TopicID  int64  `json:"topic_id,omitempty"`
-	NewTopic string `json:"new_topic,omitempty"`
-	URL      string `json:"url"`
+	TopicID         int64  `json:"topic_id,omitempty"`
+	NewTopic        string `json:"new_topic,omitempty"`
+	URL             string `json:"url"`
+	NotifyTelegram  bool   `json:"notify_telegram,omitempty"`
+	TelegramMessage string `json:"telegram_message,omitempty"`
 }
 
 type pkbReader interface {
@@ -70,7 +73,7 @@ func IsEnabled() bool {
 	return strings.TrimSpace(os.Getenv("NAIMA_API_TOKEN")) != "" || strings.TrimSpace(os.Getenv("NAIMA_API_ADDR")) != ""
 }
 
-func RunServer(ctx context.Context, agentInstance *agent.Agent, pkbStore pkbReader) error {
+func RunServer(ctx context.Context, agentInstance *agent.Agent, pkbStore pkbReader, notifier *telegram.Notifier) error {
 	cfg, err := loadConfig()
 	if err != nil {
 		return err
@@ -425,6 +428,20 @@ func RunServer(ctx context.Context, agentInstance *agent.Agent, pkbStore pkbRead
 			writeError(w, http.StatusBadRequest, err.Error())
 			return
 		}
+		if req.NotifyTelegram {
+			msg := strings.TrimSpace(req.TelegramMessage)
+			if msg == "" {
+				msg = fmt.Sprintf("Naima ingested URL into PKB.\nTopic: %s\nDocument: %s\nSource: %s", topicTitleForNotification(topic, topicID), strings.TrimSpace(doc.Title), req.URL)
+			}
+			if notifier == nil || !notifier.Enabled() {
+				writeError(w, http.StatusServiceUnavailable, "telegram notifier is not configured")
+				return
+			}
+			if err := notifier.Send(msg); err != nil {
+				writeError(w, http.StatusBadGateway, "telegram notification failed: "+err.Error())
+				return
+			}
+		}
 		writeJSON(w, http.StatusOK, map[string]any{
 			"topic":         topic,
 			"topic_id":      topicID,
@@ -554,6 +571,16 @@ func RunServer(ctx context.Context, agentInstance *agent.Agent, pkbStore pkbRead
 	}
 
 	return <-shutdownErr
+}
+
+func topicTitleForNotification(topic pkb.Topic, topicID int64) string {
+	if strings.TrimSpace(topic.Title) != "" {
+		return topic.Title
+	}
+	if topicID > 0 {
+		return fmt.Sprintf("Topic %d", topicID)
+	}
+	return "unknown"
 }
 
 func parsePKBID(path string, prefix string) (int64, error) {

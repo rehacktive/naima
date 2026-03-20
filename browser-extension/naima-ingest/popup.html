@@ -1,0 +1,50 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Naima Ingest</title>
+  <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+  <main class="card">
+    <h1>Naima Ingest</h1>
+
+    <label>
+      <span>Naima URL</span>
+      <input id="serverUrl" type="text" placeholder="http://localhost:8080">
+    </label>
+
+    <label>
+      <span>API token</span>
+      <input id="apiToken" type="password" placeholder="NAIMA_API_TOKEN">
+    </label>
+
+    <label>
+      <span>Topic</span>
+      <select id="topicSelect">
+        <option value="">Select topic...</option>
+        <option value="__new__">Create new topic</option>
+      </select>
+    </label>
+
+    <label id="newTopicWrap" class="hidden">
+      <span>New topic</span>
+      <input id="newTopic" type="text" placeholder="Topic title">
+    </label>
+
+    <label class="checkbox">
+      <input id="notifyTelegram" type="checkbox" checked>
+      <span>Notify via Telegram when done</span>
+    </label>
+
+    <div class="actions">
+      <button id="refreshTopics" type="button">Refresh topics</button>
+      <button id="ingestBtn" type="button">Ingest current tab</button>
+    </div>
+
+    <p id="status" class="status"></p>
+  </main>
+  <script src="popup.js"></script>
+</body>
+</html>

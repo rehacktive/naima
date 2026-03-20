@@ -162,7 +162,7 @@ func main() {
 		running++
 		go func() {
 			log.Infof("[agent] starting web interface")
-			errCh <- httpapi.RunServer(ctx, agentInstance, pkbStorage)
+			errCh <- httpapi.RunServer(ctx, agentInstance, pkbStorage, telegramNotifier)
 		}()
 	}
 

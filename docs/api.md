@@ -92,6 +92,15 @@ curl -sS -X POST "http://localhost:8080/api/pkb/ingest" \
   -d '{"topic_id":1,"url":"https://example.com/article"}'
 ```
 
+Ingest URL and notify via Telegram when done:
+
+```sh
+curl -sS -X POST "http://localhost:8080/api/pkb/ingest" \
+  -H "Authorization: Bearer $NAIMA_API_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"topic_id":1,"url":"https://example.com/article","notify_telegram":true}'
+```
+
 Ingest URL into new topic:
 
 ```sh

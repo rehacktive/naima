@@ -1,0 +1,15 @@
+{
+  "manifest_version": 3,
+  "name": "Naima Ingest",
+  "version": "0.1.0",
+  "description": "Ingest the current tab URL into a local Naima instance and notify via Telegram.",
+  "permissions": ["storage", "tabs"],
+  "host_permissions": [
+    "http://localhost/*",
+    "http://127.0.0.1/*"
+  ],
+  "action": {
+    "default_title": "Naima Ingest",
+    "default_popup": "popup.html"
+  }
+}

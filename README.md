@@ -70,6 +70,11 @@ Exposed ports:
 - URL/file ingestion dialog
 - scoped chat over selected PKB documents
 
+### Browser extension
+- Chrome/Brave popup extension to ingest the current tab URL into Naima
+- optional Telegram notification after ingestion completes
+- source lives in `browser-extension/naima-ingest`
+
 ### Telegram
 - account linking via link code
 - optional draft streaming
@@ -111,6 +116,17 @@ Important env groups:
 Detailed references:
 - [REST API](docs/api.md)
 - [Tools](docs/tools.md)
+
+## Browser Extension
+
+Load the unpacked extension from:
+- `browser-extension/naima-ingest`
+
+It lets you:
+- set local Naima URL and API token
+- choose an existing PKB topic or create a new one
+- ingest the current browser tab URL
+- request Telegram notification when the ingest completes
 
 ## Command line
 
