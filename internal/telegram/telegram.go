@@ -12,6 +12,7 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"sync"
 	"time"
 
 	tgbotapi "github.com/go-telegram-bot-api/telegram-bot-api/v5"
@@ -51,6 +52,7 @@ func RunBot(ctx context.Context, agentInstance *agent.Agent) error {
 	updates := bot.GetUpdatesChan(updateConfig)
 	streamEnabled := isTelegramStreamEnabled()
 	log.Infof("[telegram] draft streaming enabled=%t", streamEnabled)
+	state := &telegramRunState{}
 
 	sessionPath := sessionFilePath()
 	session, err := loadSession(sessionPath)
@@ -113,6 +115,16 @@ func RunBot(ctx context.Context, agentInstance *agent.Agent) error {
 
 			text := strings.TrimSpace(update.Message.Text)
 			log.Infof("[telegram] message received user_id=%d chat_id=%d chars=%d", update.Message.From.ID, update.Message.Chat.ID, len(text))
+			if text == "/stop" || text == "/cancel" {
+				if state.cancelCurrent(update.Message.Chat.ID) {
+					msg := tgbotapi.NewMessage(update.Message.Chat.ID, "Cancellation requested. Stopping current task...")
+					_, _ = bot.Send(msg)
+				} else {
+					msg := tgbotapi.NewMessage(update.Message.Chat.ID, "No active task to cancel.")
+					_, _ = bot.Send(msg)
+				}
+				continue
+			}
 			if text == "/new" || text == "/reset" {
 				response := "Memory reset. Starting a new conversation."
 				if err := agentInstance.ResetMemory(); err != nil {
@@ -128,56 +140,117 @@ func RunBot(ctx context.Context, agentInstance *agent.Agent) error {
 				continue
 			}
 
-			inputText := text
-			audioLanguage := ""
-			if hasAudio && text == "" {
-				audioCtx, cancel := context.WithTimeout(ctx, defaultAudioTimeout)
-				transcript, detectedLang, trErr := transcribeTelegramAudio(audioCtx, bot, agentInstance.Client, audioInput)
-				cancel()
-				if trErr != nil {
-					msg := tgbotapi.NewMessage(update.Message.Chat.ID, fmt.Sprintf("Error: audio transcription failed: %s", trErr.Error()))
-					_, _ = bot.Send(msg)
-					continue
-				}
-				inputText = transcript
-				audioLanguage = detectedLang
-				log.Infof("[telegram] audio transcribed kind=%s lang=%s chars=%d", audioInput.Kind, audioLanguage, len(strings.TrimSpace(inputText)))
+			msgCtx, msgCancel := context.WithCancel(ctx)
+			if !state.begin(update.Message.Chat.ID, msgCancel) {
+				msgCancel()
+				msg := tgbotapi.NewMessage(update.Message.Chat.ID, "Already processing your previous request. Send /stop to cancel it first.")
+				_, _ = bot.Send(msg)
+				continue
 			}
 
-			var (
-				response string
-				err      error
-			)
-			opReporter := newTelegramOpReporter(bot, update.Message.Chat.ID)
-			if streamEnabled {
-				streamer := newDraftStreamer(bot, update.Message.Chat.ID)
-				response, err = agentInstance.ProcessMessageStreamWithOps(ctx, inputText, streamer.OnDelta, opReporter.OnOp)
-				streamer.Flush()
-			} else {
-				response, err = agentInstance.ProcessMessageStreamWithOps(ctx, inputText, nil, opReporter.OnOp)
-			}
-			if err != nil {
-				opReporter.OnOp("processing failed: " + err.Error())
-				response = fmt.Sprintf("Error: %s", err.Error())
-			}
+			started := tgbotapi.NewMessage(update.Message.Chat.ID, "Processing started. Send /stop to cancel.")
+			_, _ = bot.Send(started)
 
-			msg := tgbotapi.NewMessage(update.Message.Chat.ID, response)
-			_, _ = bot.Send(msg)
+			chatID := update.Message.Chat.ID
+			go func(initialText string, audio incomingAudio, withAudio bool, reqCtx context.Context, cancel context.CancelFunc) {
+				defer cancel()
+				defer state.end(chatID)
 
-			if hasAudio && err == nil {
-				audioCtx, cancel := context.WithTimeout(ctx, defaultAudioTimeout)
-				voiceData, ext, ttsErr := synthesizeSpeech(audioCtx, agentInstance.Client, response, audioLanguage)
-				cancel()
-				if ttsErr != nil {
-					log.Warnf("[telegram] tts failed: %v", ttsErr)
-					continue
+				inputText := initialText
+				audioLanguage := ""
+				if withAudio && initialText == "" {
+					audioCtx, audioCancel := context.WithTimeout(reqCtx, defaultAudioTimeout)
+					transcript, detectedLang, trErr := transcribeTelegramAudio(audioCtx, bot, agentInstance.Client, audio)
+					audioCancel()
+					if trErr != nil {
+						msg := tgbotapi.NewMessage(chatID, fmt.Sprintf("Error: audio transcription failed: %s", trErr.Error()))
+						_, _ = bot.Send(msg)
+						return
+					}
+					inputText = transcript
+					audioLanguage = detectedLang
+					log.Infof("[telegram] audio transcribed kind=%s lang=%s chars=%d", audio.Kind, audioLanguage, len(strings.TrimSpace(inputText)))
 				}
-				if sendErr := sendVoiceReply(bot, update.Message.Chat.ID, voiceData, ext); sendErr != nil {
-					log.Warnf("[telegram] send voice reply failed: %v", sendErr)
+
+				var (
+					response string
+					err      error
+				)
+				opReporter := newTelegramOpReporter(bot, chatID)
+				if streamEnabled {
+					streamer := newDraftStreamer(bot, chatID)
+					response, err = agentInstance.ProcessMessageStreamWithOps(reqCtx, inputText, streamer.OnDelta, opReporter.OnOp)
+					streamer.Flush()
+				} else {
+					response, err = agentInstance.ProcessMessageStreamWithOps(reqCtx, inputText, nil, opReporter.OnOp)
 				}
-			}
+				if err != nil {
+					if errors.Is(err, context.Canceled) || strings.Contains(strings.ToLower(err.Error()), "context canceled") {
+						response = "Canceled."
+					} else {
+						opReporter.OnOp("processing failed: " + err.Error())
+						response = fmt.Sprintf("Error: %s", err.Error())
+					}
+				}
+
+				msg := tgbotapi.NewMessage(chatID, response)
+				_, _ = bot.Send(msg)
+
+				if withAudio && err == nil {
+					audioCtx, audioCancel := context.WithTimeout(reqCtx, defaultAudioTimeout)
+					voiceData, ext, ttsErr := synthesizeSpeech(audioCtx, agentInstance.Client, response, audioLanguage)
+					audioCancel()
+					if ttsErr != nil {
+						log.Warnf("[telegram] tts failed: %v", ttsErr)
+						return
+					}
+					if sendErr := sendVoiceReply(bot, chatID, voiceData, ext); sendErr != nil {
+						log.Warnf("[telegram] send voice reply failed: %v", sendErr)
+					}
+				}
+			}(text, audioInput, hasAudio, msgCtx, msgCancel)
 		}
 	}
+}
+
+type telegramRunState struct {
+	mu         sync.Mutex
+	processing bool
+	chatID     int64
+	cancel     context.CancelFunc
+}
+
+func (s *telegramRunState) begin(chatID int64, cancel context.CancelFunc) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.processing {
+		return false
+	}
+	s.processing = true
+	s.chatID = chatID
+	s.cancel = cancel
+	return true
+}
+
+func (s *telegramRunState) end(chatID int64) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.chatID != chatID {
+		return
+	}
+	s.processing = false
+	s.chatID = 0
+	s.cancel = nil
+}
+
+func (s *telegramRunState) cancelCurrent(chatID int64) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if !s.processing || s.chatID != chatID || s.cancel == nil {
+		return false
+	}
+	s.cancel()
+	return true
 }
 
 type incomingAudio struct {
