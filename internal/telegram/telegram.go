@@ -553,7 +553,7 @@ func (r *telegramOpReporter) OnOp(op string) {
 		return
 	}
 
-	msg := tgbotapi.NewMessage(r.chatID, "Naima update: "+text)
+	msg := tgbotapi.NewMessage(r.chatID, "> "+text)
 	if _, err := r.bot.Send(msg); err != nil {
 		log.Warnf("[telegram] progress update failed: %v", err)
 		return
