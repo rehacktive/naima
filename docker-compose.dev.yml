@@ -72,15 +72,6 @@ services:
       timeout: 5s
       retries: 20
 
-  lightpanda:
-    image: lightpanda/browser:nightly
-    container_name: naima-lightpanda-dev
-    restart: unless-stopped
-    environment:
-      LIGHTPANDA_DISABLE_TELEMETRY: "true"
-    ports:
-      - "9222:9222"
-
 volumes:
   pgvector_dev_data:
   bash_tool_dev_data:

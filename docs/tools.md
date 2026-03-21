@@ -16,7 +16,6 @@ Naima loads tool guidance dynamically:
 | `personal_knowledge_base` | CRUD over topics/documents plus ingestion and temporal search |
 | `pkb_retrieve` | explicit semantic retrieval over ingested PKB documents and chunks |
 | `bash` | bash execution inside an isolated Debian sidecar container |
-| `lightpanda` | browser automation through the dockerized Lightpanda browser |
 | `playwright` | browser automation and page extraction |
 | `task_scheduler` | persistent alarms and scheduled agent tasks |
 | `long_memory` | semantic recall and LLM summary of past conversation |
@@ -81,11 +80,6 @@ File ingestion:
 - executes bash commands in a Debian sidecar container
 - supports package installation and persistent workspace files inside the container
 - returns stdout, stderr, exit code, timeout status, and working directory
-
-### `lightpanda`
-- browser automation over the Lightpanda CDP endpoint
-- uses the dockerized Lightpanda browser service
-- supports goto, scrape, click, type, press, evaluate, screenshot, and close
 
 ### `playwright`
 Supports operations such as:

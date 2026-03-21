@@ -118,7 +118,6 @@ func main() {
 		tools.NewPersonalKnowledgeBaseTool(pkbStorage, pkbIngestConfig()),
 		tools.NewPKBRetrieveTool(client, llmConfig.EmbeddingModel, pkbStorage),
 		tools.NewBashTool(bashToolURL()),
-		tools.NewLightpandaTool(lightpandaURL(), envInt("NAIMA_LIGHTPANDA_TIMEOUT_MS", 30000)),
 		tools.NewPlaywrightTool(playwrightHeadless(), envInt("NAIMA_PLAYWRIGHT_TIMEOUT_MS", 30000)),
 		tools.NewTaskSchedulerTool(taskManager),
 		tools.NewLongMemoryTool(client, llmConfig.Model, llmConfig.EmbeddingModel, memStore),
@@ -201,14 +200,6 @@ func searxURL() string {
 	}
 
 	return "http://localhost:8081"
-}
-
-func lightpandaURL() string {
-	if p := strings.TrimSpace(os.Getenv("NAIMA_LIGHTPANDA_URL")); p != "" {
-		return p
-	}
-
-	return ""
 }
 
 func bashToolURL() string {
