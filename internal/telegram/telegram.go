@@ -148,14 +148,16 @@ func RunBot(ctx context.Context, agentInstance *agent.Agent) error {
 				response string
 				err      error
 			)
+			opReporter := newTelegramOpReporter(bot, update.Message.Chat.ID)
 			if streamEnabled {
 				streamer := newDraftStreamer(bot, update.Message.Chat.ID)
-				response, err = agentInstance.ProcessMessageStream(ctx, inputText, streamer.OnDelta)
+				response, err = agentInstance.ProcessMessageStreamWithOps(ctx, inputText, streamer.OnDelta, opReporter.OnOp)
 				streamer.Flush()
 			} else {
-				response, err = agentInstance.ProcessMessage(ctx, inputText)
+				response, err = agentInstance.ProcessMessageStreamWithOps(ctx, inputText, nil, opReporter.OnOp)
 			}
 			if err != nil {
+				opReporter.OnOp("processing failed: " + err.Error())
 				response = fmt.Sprintf("Error: %s", err.Error())
 			}
 
@@ -448,6 +450,74 @@ func isTelegramStreamEnabled() bool {
 		return true
 	default:
 		return false
+	}
+}
+
+type telegramOpReporter struct {
+	bot      *tgbotapi.BotAPI
+	chatID   int64
+	lastText string
+	lastSent time.Time
+}
+
+func newTelegramOpReporter(bot *tgbotapi.BotAPI, chatID int64) *telegramOpReporter {
+	return &telegramOpReporter{bot: bot, chatID: chatID}
+}
+
+func (r *telegramOpReporter) OnOp(op string) {
+	if r == nil || r.bot == nil || r.chatID == 0 {
+		return
+	}
+	text := normalizeTelegramOp(op)
+	if text == "" {
+		return
+	}
+	now := time.Now()
+	if text == r.lastText && now.Sub(r.lastSent) < 3*time.Second {
+		return
+	}
+	if !r.lastSent.IsZero() && now.Sub(r.lastSent) < 1200*time.Millisecond {
+		return
+	}
+
+	msg := tgbotapi.NewMessage(r.chatID, "Naima update: "+text)
+	if _, err := r.bot.Send(msg); err != nil {
+		log.Warnf("[telegram] progress update failed: %v", err)
+		return
+	}
+	r.lastText = text
+	r.lastSent = now
+}
+
+func normalizeTelegramOp(op string) string {
+	value := strings.TrimSpace(op)
+	if value == "" {
+		return ""
+	}
+	switch {
+	case strings.HasPrefix(value, "executing tool:"):
+		name := strings.TrimSpace(strings.TrimPrefix(value, "executing tool:"))
+		if name == "" {
+			return "using a tool"
+		}
+		return "using tool " + name
+	case strings.HasPrefix(value, "tool error:"):
+		return value
+	case strings.HasPrefix(value, "processing failed:"):
+		return value
+	case strings.HasPrefix(value, "pkb"):
+		return value
+	case strings.HasPrefix(value, "model follow-up"):
+		return "continuing after tool results"
+	case strings.HasPrefix(value, "model request started"):
+		return "thinking"
+	case strings.HasPrefix(value, "message received"):
+		return "received your message"
+	case strings.HasPrefix(value, "reply sent") || strings.HasPrefix(value, "assistant replied"):
+		return "finalizing response"
+	default:
+		// Ignore noisy internal steps like embeddings/tool-output counters.
+		return ""
 	}
 }
 
