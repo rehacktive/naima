@@ -23,6 +23,17 @@
       --surface: #0b1118;
       --surface-2: #101a24;
       --send-fg: #0B0F14;
+      --pkb-ground: #0f1a24;
+      --pkb-ring: #225265;
+      --pkb-topic: #2bc4b5;
+      --pkb-doc: #6ecbc3;
+      --pkb-topic-emissive: #14313d;
+      --pkb-doc-emissive: #1a3f4b;
+      --pkb-label-bg: rgba(11, 15, 20, 0.78);
+      --pkb-label-border: rgba(61, 242, 224, 0.55);
+      --pkb-label-text: #E8FFFC;
+      --pkb-toolbar-bg: rgba(16, 23, 32, 0.8);
+      --pkb-toolbar-fg: var(--text);
     }
     body.theme-quantum {
       --bg: #0E2A47;
@@ -55,6 +66,17 @@
       --surface: #f5fffd;
       --surface-2: #d5f7f2;
       --send-fg: #3DF2E0;
+      --pkb-ground: #f0f9f7;
+      --pkb-ring: #4f808b;
+      --pkb-topic: #2f7d8f;
+      --pkb-doc: #7a95a8;
+      --pkb-topic-emissive: #d0e8ee;
+      --pkb-doc-emissive: #dceaf0;
+      --pkb-label-bg: rgba(236, 249, 247, 0.95);
+      --pkb-label-border: rgba(47, 125, 143, 0.8);
+      --pkb-label-text: #12232f;
+      --pkb-toolbar-bg: rgba(236, 249, 247, 0.92);
+      --pkb-toolbar-fg: #12232f;
     }
     body.theme-quantum-light {
       --bg: #d4c8ff;
@@ -71,6 +93,17 @@
       --surface: #faf7ff;
       --surface-2: #e8dcff;
       --send-fg: #8A6CFF;
+      --pkb-ground: #f6f2ff;
+      --pkb-ring: #6f6798;
+      --pkb-topic: #5e6cc2;
+      --pkb-doc: #8a8fc7;
+      --pkb-topic-emissive: #d8d1f5;
+      --pkb-doc-emissive: #e2dcfb;
+      --pkb-label-bg: rgba(245, 241, 255, 0.95);
+      --pkb-label-border: rgba(94, 108, 194, 0.75);
+      --pkb-label-text: #1a2540;
+      --pkb-toolbar-bg: rgba(245, 241, 255, 0.92);
+      --pkb-toolbar-fg: #1a2540;
     }
     * {
       box-sizing: border-box;
@@ -737,8 +770,8 @@
     .pkb-toolbar button {
       border: 1px solid var(--border);
       border-radius: 999px;
-      background: rgba(16, 23, 32, 0.8);
-      color: var(--text);
+      background: var(--pkb-toolbar-bg);
+      color: var(--pkb-toolbar-fg);
       padding: 6px 10px;
       font-size: 10px;
     }
@@ -1340,6 +1373,9 @@
       const value = normalizeTheme(themeSelectEl.value);
       localStorage.setItem(themeKey, value);
       applyTheme(value);
+      if (currentMainTab() === "pkb" && Array.isArray(pkbSceneState.currentTopics)) {
+        buildPKBScene(pkbSceneState.currentTopics);
+      }
     });
 
     sendBtn.addEventListener("click", () => {
@@ -2157,7 +2193,7 @@
       const ground = new THREE.Mesh(
         new THREE.CylinderGeometry(18, 22, 0.8, 48),
         new THREE.MeshStandardMaterial({
-          color: colorHex("--surface", "#0b1118"),
+          color: colorHex("--pkb-ground", "#0f1a24"),
           metalness: 0.4,
           roughness: 0.7
         })
@@ -2167,7 +2203,7 @@
 
       const ring = new THREE.Mesh(
         new THREE.TorusGeometry(14, 0.08, 12, 80),
-        new THREE.MeshStandardMaterial({ color: colorHex("--border", "#1f3f4b") })
+        new THREE.MeshStandardMaterial({ color: colorHex("--pkb-ring", "#225265") })
       );
       ring.rotation.x = Math.PI / 2;
       scene.add(ring);
@@ -2283,8 +2319,9 @@
       ctx.textBaseline = "middle";
       ctx.textAlign = "center";
       ctx.clearRect(0, 0, canvas.width, canvas.height);
-      ctx.fillStyle = "rgba(11, 15, 20, 0.78)";
-      ctx.strokeStyle = "rgba(61, 242, 224, 0.55)";
+      const styles = getComputedStyle(document.body);
+      ctx.fillStyle = styles.getPropertyValue("--pkb-label-bg").trim() || "rgba(11, 15, 20, 0.78)";
+      ctx.strokeStyle = styles.getPropertyValue("--pkb-label-border").trim() || "rgba(61, 242, 224, 0.55)";
       ctx.lineWidth = 1.5;
       const radius = 8;
       ctx.beginPath();
@@ -2300,7 +2337,7 @@
       ctx.closePath();
       ctx.fill();
       ctx.stroke();
-      ctx.fillStyle = "#E8FFFC";
+      ctx.fillStyle = styles.getPropertyValue("--pkb-label-text").trim() || "#E8FFFC";
       ctx.fillText(label, canvas.width / 2, canvas.height / 2);
 
       const texture = new THREE.CanvasTexture(canvas);
@@ -2335,9 +2372,10 @@
       const cols = Math.max(1, Math.ceil(Math.sqrt(topicCount)));
       const spacing = 7.2;
       const startX = -((cols - 1) * spacing) / 2;
-      const topicColor = colorHex("--accent", "#3DF2E0");
-      const docColor = colorHex("--muted", "#7adbd2");
-      const borderColor = colorHex("--border", "#1f3f4b");
+      const topicColor = colorHex("--pkb-topic", "#2bc4b5");
+      const docColor = colorHex("--pkb-doc", "#6ecbc3");
+      const topicEmissiveColor = colorHex("--pkb-topic-emissive", "#14313d");
+      const docEmissiveColor = colorHex("--pkb-doc-emissive", "#1a3f4b");
       const labelScale = Math.max(0.42, Math.min(0.72, 6 / Math.max(topicCount, 6)));
 
       topics.forEach((topic, index) => {
@@ -2351,7 +2389,7 @@
           new THREE.BoxGeometry(2.4, height, 2.4),
           new THREE.MeshStandardMaterial({
             color: topicColor,
-            emissive: borderColor,
+            emissive: topicEmissiveColor,
             emissiveIntensity: 0.12,
             metalness: 0.35,
             roughness: 0.4
@@ -2375,7 +2413,7 @@
             new THREE.BoxGeometry(0.8, docHeight, 0.8),
             new THREE.MeshStandardMaterial({
               color: docColor,
-              emissive: topicColor,
+              emissive: docEmissiveColor,
               emissiveIntensity: 0.08,
               metalness: 0.15,
               roughness: 0.55
