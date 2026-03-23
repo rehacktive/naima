@@ -110,6 +110,7 @@ Important env groups:
 ## Documentation
 
 Detailed references:
+- [Quickstart](quickstart.md)
 - [REST API](docs/api.md)
 - [Tools](docs/tools.md)
 
