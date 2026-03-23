@@ -52,7 +52,16 @@ Supports:
 Storage behavior:
 - full document content stays in `pkb_documents`
 - chunk embeddings are stored in `pkb_embeddings`
+- extracted tags are stored in `pkb_tags` and linked through `pkb_document_tags`
 - those embeddings are used for semantic retrieval during chat
+
+Tag extraction:
+- runs automatically on document create/update and ingestion
+- uses the configured chat model to extract relevant tags from document content
+- stores each tag with both text and category
+- number of tags per document is controlled by `NAIMA_PKB_TAG_LIMIT` (default `12`)
+- on startup, only missing tag rows are backfilled
+- on startup, only missing embedding rows are backfilled
 
 URL ingestion modes:
 - `hybrid`

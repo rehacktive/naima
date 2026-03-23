@@ -63,6 +63,8 @@ type pkbIngestRequest struct {
 type pkbReader interface {
 	ListTopics(ctx context.Context) ([]pkb.Topic, error)
 	ListDocuments(ctx context.Context, topicID int64) ([]pkb.Document, error)
+	ListTags(ctx context.Context) ([]pkb.Tag, error)
+	ListDocumentsByTag(ctx context.Context, tagID int64) (pkb.Tag, []pkb.Document, error)
 	CreateTopic(ctx context.Context, title string) (pkb.Topic, error)
 	CreateDocument(ctx context.Context, req pkb.CreateDocumentRequest) (pkb.Document, error)
 	DeleteTopic(ctx context.Context, topicID int64) error
@@ -309,6 +311,72 @@ func RunServer(ctx context.Context, agentInstance *agent.Agent, pkbStore pkbRead
 		writeJSON(w, http.StatusOK, map[string]any{
 			"topics": out,
 			"count":  len(out),
+		})
+	})
+	mux.HandleFunc("/api/pkb/tags", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+			return
+		}
+		if !authorizeRequest(r, cfg.Token) {
+			writeError(w, http.StatusUnauthorized, "unauthorized")
+			return
+		}
+		if pkbStore == nil {
+			writeError(w, http.StatusServiceUnavailable, "personal knowledge base is not configured")
+			return
+		}
+		tags, err := pkbStore.ListTags(r.Context())
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{
+			"tags":  tags,
+			"count": len(tags),
+		})
+	})
+	mux.HandleFunc("/api/pkb/tags/", func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+			return
+		}
+		if !authorizeRequest(r, cfg.Token) {
+			writeError(w, http.StatusUnauthorized, "unauthorized")
+			return
+		}
+		if pkbStore == nil {
+			writeError(w, http.StatusServiceUnavailable, "personal knowledge base is not configured")
+			return
+		}
+
+		path := strings.TrimPrefix(r.URL.Path, "/api/pkb/tags/")
+		if path == "" {
+			writeError(w, http.StatusBadRequest, "invalid tag route")
+			return
+		}
+		const docsSuffix = "/documents"
+		if !strings.HasSuffix(path, docsSuffix) {
+			writeError(w, http.StatusBadRequest, "invalid tag route")
+			return
+		}
+		idRaw := strings.TrimSuffix(path, docsSuffix)
+		idRaw = strings.TrimSuffix(idRaw, "/")
+		tagID, err := strconv.ParseInt(strings.TrimSpace(idRaw), 10, 64)
+		if err != nil || tagID <= 0 {
+			writeError(w, http.StatusBadRequest, "invalid resource id")
+			return
+		}
+
+		tag, docs, err := pkbStore.ListDocumentsByTag(r.Context(), tagID)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{
+			"tag":       tag,
+			"documents": docs,
+			"count":     len(docs),
 		})
 	})
 	mux.HandleFunc("/api/pkb/topics/", func(w http.ResponseWriter, r *http.Request) {

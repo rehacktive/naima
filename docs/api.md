@@ -83,6 +83,20 @@ curl -sS "http://localhost:8080/api/pkb/graph" \
   -H "Authorization: Bearer $NAIMA_API_TOKEN"
 ```
 
+List extracted PKB tags (for Tag navigator):
+
+```sh
+curl -sS "http://localhost:8080/api/pkb/tags" \
+  -H "Authorization: Bearer $NAIMA_API_TOKEN"
+```
+
+Get documents associated with one tag:
+
+```sh
+curl -sS "http://localhost:8080/api/pkb/tags/1/documents" \
+  -H "Authorization: Bearer $NAIMA_API_TOKEN"
+```
+
 Ingest URL into existing topic:
 
 ```sh
@@ -141,6 +155,12 @@ Delete document:
 curl -sS -X DELETE "http://localhost:8080/api/pkb/documents/12" \
   -H "Authorization: Bearer $NAIMA_API_TOKEN"
 ```
+
+Tag behavior:
+- tags are extracted automatically whenever a URL/file/note is ingested or updated
+- extraction is delegated to the configured chat model
+- tags are persisted with text+category and linked to documents in PostgreSQL
+- on startup, missing tags/embeddings are backfilled only for documents that do not already have them
 
 ## Web UI
 

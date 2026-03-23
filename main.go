@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"encoding/json"
 	"flag"
 	"fmt"
 	"os"
@@ -97,8 +98,10 @@ func main() {
 	}
 	pkbStorage, err := pkb.NewStorage(ctx, pgvectorDSN(), pkb.Config{
 		Embedder:            newPKBEmbeddingGenerator(client),
+		Tagger:              newPKBTagExtractor(client, llmConfig.Model),
 		EmbeddingModel:      llmConfig.EmbeddingModel,
 		ChunkSize:           envInt("NAIMA_PKB_CHUNK_SIZE", 2000),
+		TagLimit:            envInt("NAIMA_PKB_TAG_LIMIT", 12),
 		VectorDims:          envInt("NAIMA_PGVECTOR_EMBEDDING_DIMS", 0),
 		RetrievalDocLimit:   envInt("NAIMA_PKB_RETRIEVAL_DOC_LIMIT", 3),
 		RetrievalChunkLimit: envInt("NAIMA_PKB_RETRIEVAL_CHUNK_LIMIT", 4),
@@ -363,6 +366,150 @@ func newPKBEmbeddingGenerator(client *openai.Client) pkb.EmbeddingGenerator {
 		}
 		return out, nil
 	}
+}
+
+func newPKBTagExtractor(client *openai.Client, model string) pkb.TagExtractor {
+	if client == nil || strings.TrimSpace(model) == "" {
+		return nil
+	}
+	return func(ctx context.Context, content string, limit int) ([]pkb.ExtractedTag, error) {
+		if limit <= 0 {
+			limit = 5
+		}
+		if limit > 20 {
+			limit = 20
+		}
+
+		payload := strings.TrimSpace(content)
+		if payload == "" {
+			return nil, nil
+		}
+		if len(payload) > 16000 {
+			payload = payload[:16000]
+		}
+
+		req := openai.ChatCompletionRequest{
+			Model: model,
+			Messages: []openai.ChatCompletionMessage{
+				{
+					Role: openai.ChatMessageRoleSystem,
+					Content: `You are an expert Natural Language Processing system specialized in Named Entity Recognition (NER).
+
+Your task is to analyze the provided text and extract all named entities. Identify and classify each entity into one of the following categories:
+
+PERSON
+ORGANIZATION
+LOCATION
+DATE
+TIME
+MONEY
+PERCENT
+PRODUCT
+EVENT
+OTHER (if none of the above apply)
+Instructions:
+Read the input text carefully.
+Extract all named entities exactly as they appear (do not modify wording).
+Assign the most appropriate category to each entity.
+Avoid duplicates unless the same entity appears multiple times in different contexts.
+If no entities are found, return an empty list.`,
+				},
+				{
+					Role: openai.ChatMessageRoleUser,
+					Content: fmt.Sprintf(
+						"Analyze the following text and extract up to %d named entities.\n"+
+							"Return ONLY valid JSON using this schema:\n"+
+							"{\"entities\":[{\"text\":\"entity\",\"category\":\"PERSON\"}]}\n\n"+
+							"Text:\n%s",
+						limit,
+						payload,
+					),
+				},
+			},
+		}
+
+		resp, err := client.CreateChatCompletion(ctx, req)
+		if err != nil {
+			return nil, err
+		}
+		if len(resp.Choices) == 0 {
+			return nil, fmt.Errorf("tag extractor returned no choices")
+		}
+		raw := strings.TrimSpace(resp.Choices[0].Message.Content)
+		raw = trimJSONCodeFence(raw)
+		if raw == "" {
+			return nil, fmt.Errorf("tag extractor returned empty content")
+		}
+
+		var parsed struct {
+			Entities []struct {
+				Text     string `json:"text"`
+				Category string `json:"category"`
+			} `json:"entities"`
+			Tags []string `json:"tags"`
+		}
+		if err := json.Unmarshal([]byte(raw), &parsed); err != nil {
+			// fallback: allow a direct JSON array
+			var arr []string
+			if err2 := json.Unmarshal([]byte(raw), &arr); err2 != nil {
+				return nil, err
+			}
+			out := make([]pkb.ExtractedTag, 0, len(arr))
+			for _, item := range arr {
+				text := strings.TrimSpace(item)
+				if text == "" {
+					continue
+				}
+				out = append(out, pkb.ExtractedTag{
+					Text:     text,
+					Category: "OTHER",
+				})
+			}
+			return out, nil
+		}
+
+		if len(parsed.Entities) > 0 {
+			out := make([]pkb.ExtractedTag, 0, len(parsed.Entities))
+			for _, entity := range parsed.Entities {
+				text := strings.TrimSpace(entity.Text)
+				if text == "" {
+					continue
+				}
+				out = append(out, pkb.ExtractedTag{
+					Text:     text,
+					Category: strings.ToUpper(strings.TrimSpace(entity.Category)),
+				})
+			}
+			return out, nil
+		}
+		if len(parsed.Tags) > 0 {
+			out := make([]pkb.ExtractedTag, 0, len(parsed.Tags))
+			for _, item := range parsed.Tags {
+				text := strings.TrimSpace(item)
+				if text == "" {
+					continue
+				}
+				out = append(out, pkb.ExtractedTag{
+					Text:     text,
+					Category: "OTHER",
+				})
+			}
+			return out, nil
+		}
+		return nil, nil
+	}
+}
+
+func trimJSONCodeFence(raw string) string {
+	value := strings.TrimSpace(raw)
+	if strings.HasPrefix(value, "```") {
+		value = strings.TrimPrefix(value, "```json")
+		value = strings.TrimPrefix(value, "```JSON")
+		value = strings.TrimPrefix(value, "```")
+		value = strings.TrimSuffix(value, "```")
+		value = strings.TrimSpace(value)
+	}
+	return value
 }
 
 func envFloat(name string, fallback float64) float64 {

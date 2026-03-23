@@ -50,6 +50,26 @@ CREATE TABLE IF NOT EXISTS pkb_embeddings (
 	created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
 );
 CREATE INDEX IF NOT EXISTS idx_pkb_embeddings_document_id ON pkb_embeddings(document_id);
+
+CREATE TABLE IF NOT EXISTS pkb_tags (
+	id BIGSERIAL PRIMARY KEY,
+	name TEXT NOT NULL,
+	category TEXT NOT NULL DEFAULT 'OTHER',
+	created_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+ALTER TABLE pkb_tags ADD COLUMN IF NOT EXISTS category TEXT NOT NULL DEFAULT 'OTHER';
+DROP INDEX IF EXISTS idx_pkb_tags_name_lower;
+CREATE UNIQUE INDEX IF NOT EXISTS idx_pkb_tags_name_category_lower ON pkb_tags (LOWER(name), category);
+
+CREATE TABLE IF NOT EXISTS pkb_document_tags (
+	document_id BIGINT NOT NULL REFERENCES pkb_documents(id) ON DELETE CASCADE,
+	tag_id BIGINT NOT NULL REFERENCES pkb_tags(id) ON DELETE CASCADE,
+	occurrences INTEGER NOT NULL DEFAULT 1,
+	created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+	PRIMARY KEY (document_id, tag_id)
+);
+CREATE INDEX IF NOT EXISTS idx_pkb_document_tags_tag_id ON pkb_document_tags(tag_id);
+CREATE INDEX IF NOT EXISTS idx_pkb_document_tags_document_id ON pkb_document_tags(document_id);
 `
 
 const (
@@ -57,29 +77,40 @@ const (
 	defaultRetrievalDocLimit   = 3
 	defaultRetrievalChunkLimit = 4
 	defaultRetrievalThreshold  = 0.35
+	defaultTagLimit            = 12
 )
 
 type Storage struct {
 	pool                *pgxpool.Pool
 	embedder            EmbeddingGenerator
+	tagger              TagExtractor
 	embeddingModel      string
 	chunkSize           int
 	vectorDims          int
 	retrievalDocLimit   int
 	retrievalChunkLimit int
 	retrievalThreshold  float64
+	tagLimit            int
 }
 
 type EmbeddingGenerator func(ctx context.Context, inputs []string, model string) ([][]float32, error)
+type TagExtractor func(ctx context.Context, content string, limit int) ([]ExtractedTag, error)
+
+type ExtractedTag struct {
+	Text     string
+	Category string
+}
 
 type Config struct {
 	Embedder            EmbeddingGenerator
+	Tagger              TagExtractor
 	EmbeddingModel      string
 	ChunkSize           int
 	VectorDims          int
 	RetrievalDocLimit   int
 	RetrievalChunkLimit int
 	RetrievalThreshold  float64
+	TagLimit            int
 }
 
 type Topic struct {
@@ -139,6 +170,15 @@ type RelevantDocument struct {
 	MinDistance float64         `json:"min_distance"`
 }
 
+type Tag struct {
+	ID          int64      `json:"id"`
+	Name        string     `json:"name"`
+	Category    string     `json:"category"`
+	Documents   int        `json:"documents"`
+	Occurrences int        `json:"occurrences"`
+	CreatedAt   *time.Time `json:"created_at,omitempty"`
+}
+
 func NewStorage(ctx context.Context, dsn string, cfg Config) (*Storage, error) {
 	if strings.TrimSpace(dsn) == "" {
 		return nil, errors.New("pkb dsn is empty")
@@ -157,12 +197,14 @@ func NewStorage(ctx context.Context, dsn string, cfg Config) (*Storage, error) {
 	storage := &Storage{
 		pool:                pool,
 		embedder:            cfg.Embedder,
+		tagger:              cfg.Tagger,
 		embeddingModel:      strings.TrimSpace(cfg.EmbeddingModel),
 		chunkSize:           cfg.ChunkSize,
 		vectorDims:          cfg.VectorDims,
 		retrievalDocLimit:   cfg.RetrievalDocLimit,
 		retrievalChunkLimit: cfg.RetrievalChunkLimit,
 		retrievalThreshold:  cfg.RetrievalThreshold,
+		tagLimit:            cfg.TagLimit,
 	}
 	if storage.chunkSize <= 0 {
 		storage.chunkSize = defaultChunkSize
@@ -179,14 +221,14 @@ func NewStorage(ctx context.Context, dsn string, cfg Config) (*Storage, error) {
 	if storage.retrievalThreshold <= 0 {
 		storage.retrievalThreshold = defaultRetrievalThreshold
 	}
+	if storage.tagLimit <= 0 {
+		storage.tagLimit = defaultTagLimit
+	}
 	if err := storage.initEmbeddingSchema(ctx); err != nil {
 		pool.Close()
 		return nil, err
 	}
-	if err := storage.backfillMissingEmbeddings(ctx); err != nil {
-		pool.Close()
-		return nil, err
-	}
+	storage.startBackgroundBackfill(ctx)
 	return storage, nil
 }
 
@@ -194,6 +236,22 @@ func (s *Storage) Close() {
 	if s.pool != nil {
 		s.pool.Close()
 	}
+}
+
+func (s *Storage) startBackgroundBackfill(ctx context.Context) {
+	go func() {
+		started := time.Now()
+		log.Infof("[pkb] background startup backfill started")
+		if err := s.backfillMissingEmbeddings(ctx); err != nil {
+			log.Errorf("[pkb] background embedding backfill failed: %v", err)
+			return
+		}
+		if err := s.backfillMissingTags(ctx); err != nil {
+			log.Errorf("[pkb] background tag backfill failed: %v", err)
+			return
+		}
+		log.Infof("[pkb] background startup backfill completed in %s", time.Since(started).Truncate(time.Millisecond))
+	}()
 }
 
 func (s *Storage) CreateTopic(ctx context.Context, title string) (Topic, error) {
@@ -336,6 +394,12 @@ RETURNING id, topic_id, kind, title, source_url, ingest_method, content, created
 		}
 		return Document{}, err
 	}
+	if err := s.rebuildTagsForDocument(ctx, d.ID, d.Content); err != nil {
+		if _, delErr := s.pool.Exec(ctx, `DELETE FROM pkb_documents WHERE id = $1`, d.ID); delErr != nil {
+			log.Warnf("[pkb] rollback document after tag failure failed document_id=%d err=%v", d.ID, delErr)
+		}
+		return Document{}, err
+	}
 	return d, nil
 }
 
@@ -399,6 +463,9 @@ RETURNING id, topic_id, kind, title, source_url, ingest_method, content, created
 	if err := s.rebuildEmbeddingsForDocument(ctx, d.ID, d.Content); err != nil {
 		return Document{}, err
 	}
+	if err := s.rebuildTagsForDocument(ctx, d.ID, d.Content); err != nil {
+		return Document{}, err
+	}
 	return d, nil
 }
 
@@ -452,6 +519,100 @@ ORDER BY d.created_at DESC, d.id DESC;
 		return nil, fmt.Errorf("iterate ranged documents failed: %w", err)
 	}
 	return out, nil
+}
+
+func (s *Storage) ListTags(ctx context.Context) ([]Tag, error) {
+	rows, err := s.pool.Query(ctx, `
+SELECT
+	t.id,
+	t.name,
+	t.category,
+	t.created_at,
+	COUNT(DISTINCT dt.document_id) AS documents,
+	COALESCE(SUM(dt.occurrences), 0) AS occurrences
+FROM pkb_tags t
+LEFT JOIN pkb_document_tags dt ON dt.tag_id = t.id
+GROUP BY t.id, t.name, t.category, t.created_at
+ORDER BY occurrences DESC, documents DESC, t.name ASC`)
+	if err != nil {
+		return nil, fmt.Errorf("list tags failed: %w", err)
+	}
+	defer rows.Close()
+
+	out := make([]Tag, 0)
+	for rows.Next() {
+		var tag Tag
+		if err := rows.Scan(&tag.ID, &tag.Name, &tag.Category, &tag.CreatedAt, &tag.Documents, &tag.Occurrences); err != nil {
+			return nil, fmt.Errorf("scan tag failed: %w", err)
+		}
+		out = append(out, tag)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate tags failed: %w", err)
+	}
+	return out, nil
+}
+
+func (s *Storage) ListDocumentsByTag(ctx context.Context, tagID int64) (Tag, []Document, error) {
+	if tagID <= 0 {
+		return Tag{}, nil, errors.New("tag_id is required")
+	}
+
+	var tag Tag
+	if err := s.pool.QueryRow(ctx, `
+SELECT
+	t.id,
+	t.name,
+	t.category,
+	t.created_at,
+	COUNT(DISTINCT dt.document_id) AS documents,
+	COALESCE(SUM(dt.occurrences), 0) AS occurrences
+FROM pkb_tags t
+LEFT JOIN pkb_document_tags dt ON dt.tag_id = t.id
+WHERE t.id = $1
+GROUP BY t.id, t.name, t.category, t.created_at
+`, tagID).Scan(&tag.ID, &tag.Name, &tag.Category, &tag.CreatedAt, &tag.Documents, &tag.Occurrences); err != nil {
+		if strings.Contains(err.Error(), "no rows") {
+			return Tag{}, nil, fmt.Errorf("tag not found: %d", tagID)
+		}
+		return Tag{}, nil, fmt.Errorf("load tag failed: %w", err)
+	}
+
+	rows, err := s.pool.Query(ctx, `
+SELECT
+	d.id,
+	d.topic_id,
+	t.title,
+	d.kind,
+	d.title,
+	d.source_url,
+	d.ingest_method,
+	d.content,
+	d.created_at,
+	d.updated_at
+FROM pkb_document_tags dt
+JOIN pkb_documents d ON d.id = dt.document_id
+JOIN pkb_topics t ON t.id = d.topic_id
+WHERE dt.tag_id = $1
+ORDER BY dt.occurrences DESC, d.updated_at DESC, d.id DESC
+`, tagID)
+	if err != nil {
+		return Tag{}, nil, fmt.Errorf("list documents by tag failed: %w", err)
+	}
+	defer rows.Close()
+
+	docs := make([]Document, 0)
+	for rows.Next() {
+		var d Document
+		if err := rows.Scan(&d.ID, &d.TopicID, &d.TopicTitle, &d.Kind, &d.Title, &d.SourceURL, &d.IngestMethod, &d.Content, &d.CreatedAt, &d.UpdatedAt); err != nil {
+			return Tag{}, nil, fmt.Errorf("scan document by tag failed: %w", err)
+		}
+		docs = append(docs, d)
+	}
+	if err := rows.Err(); err != nil {
+		return Tag{}, nil, fmt.Errorf("iterate documents by tag failed: %w", err)
+	}
+	return tag, docs, nil
 }
 
 func (s *Storage) SearchRelevantDocuments(ctx context.Context, queryEmbeddings []float32, docLimit int, chunkLimit int) ([]RelevantDocument, error) {
@@ -685,6 +846,183 @@ ORDER BY d.id ASC`)
 		log.Infof("[pkb] backfilled chunk embeddings for %d existing documents", len(pending))
 	}
 	return nil
+}
+
+func (s *Storage) backfillMissingTags(ctx context.Context) error {
+	rows, err := s.pool.Query(ctx, `
+SELECT d.id, d.content
+FROM pkb_documents d
+WHERE NOT EXISTS (
+	SELECT 1 FROM pkb_document_tags dt WHERE dt.document_id = d.id
+)
+ORDER BY d.id ASC`)
+	if err != nil {
+		return fmt.Errorf("pkb tags backfill query failed: %w", err)
+	}
+	defer rows.Close()
+
+	type docRow struct {
+		ID      int64
+		Content string
+	}
+	pending := make([]docRow, 0)
+	for rows.Next() {
+		var row docRow
+		if err := rows.Scan(&row.ID, &row.Content); err != nil {
+			return fmt.Errorf("pkb tags backfill scan failed: %w", err)
+		}
+		pending = append(pending, row)
+	}
+	if err := rows.Err(); err != nil {
+		return fmt.Errorf("pkb tags backfill iterate failed: %w", err)
+	}
+	for _, row := range pending {
+		if err := s.rebuildTagsForDocument(ctx, row.ID, row.Content); err != nil {
+			return fmt.Errorf("pkb tags backfill failed for document %d: %w", row.ID, err)
+		}
+	}
+	if len(pending) > 0 {
+		log.Infof("[pkb] rebuilt tags for %d existing documents", len(pending))
+	}
+	return nil
+}
+
+func (s *Storage) rebuildTagsForDocument(ctx context.Context, documentID int64, content string) error {
+	if documentID <= 0 {
+		return errors.New("document_id is required")
+	}
+	if _, err := s.pool.Exec(ctx, `DELETE FROM pkb_document_tags WHERE document_id = $1`, documentID); err != nil {
+		return fmt.Errorf("delete document tags failed: %w", err)
+	}
+
+	tagCounts, err := s.extractTagCounts(ctx, content, s.tagLimit)
+	if err != nil {
+		return err
+	}
+	if len(tagCounts) == 0 {
+		return nil
+	}
+
+	tx, err := s.pool.Begin(ctx)
+	if err != nil {
+		return fmt.Errorf("begin document tag transaction failed: %w", err)
+	}
+	defer tx.Rollback(ctx)
+
+	for _, item := range tagCounts {
+		var tagID int64
+		if err := tx.QueryRow(ctx, `
+INSERT INTO pkb_tags(name, category)
+VALUES ($1, $2)
+ON CONFLICT ((LOWER(name)), category)
+DO UPDATE SET name = EXCLUDED.name, category = EXCLUDED.category
+RETURNING id
+`, item.Tag, item.Category).Scan(&tagID); err != nil {
+			return fmt.Errorf("upsert tag failed: %w", err)
+		}
+
+		if _, err := tx.Exec(ctx, `
+INSERT INTO pkb_document_tags(document_id, tag_id, occurrences)
+VALUES ($1, $2, $3)
+ON CONFLICT (document_id, tag_id)
+DO UPDATE SET occurrences = EXCLUDED.occurrences
+`, documentID, tagID, item.Count); err != nil {
+			return fmt.Errorf("associate document tag failed: %w", err)
+		}
+	}
+
+	if err := tx.Commit(ctx); err != nil {
+		return fmt.Errorf("commit document tags failed: %w", err)
+	}
+	log.Infof("[pkb] tags updated document_id=%d tags=%d", documentID, len(tagCounts))
+	return nil
+}
+
+type tagCount struct {
+	Tag      string
+	Category string
+	Count    int
+}
+
+func (s *Storage) extractTagCounts(ctx context.Context, content string, limit int) ([]tagCount, error) {
+	if limit <= 0 {
+		limit = defaultTagLimit
+	}
+	content = strings.TrimSpace(content)
+	if content == "" {
+		return nil, nil
+	}
+	if s.tagger == nil {
+		return nil, nil
+	}
+
+	tags, err := s.tagger(ctx, content, limit)
+	if err != nil {
+		return nil, fmt.Errorf("extract tags with llm failed: %w", err)
+	}
+	normalized := normalizeLLMTags(tags, limit)
+	out := make([]tagCount, 0, len(normalized))
+	for _, tag := range normalized {
+		out = append(out, tagCount{
+			Tag:      tag.Text,
+			Category: tag.Category,
+			Count:    1,
+		})
+	}
+	return out, nil
+}
+
+func normalizeLLMTags(tags []ExtractedTag, limit int) []ExtractedTag {
+	if limit <= 0 {
+		limit = defaultTagLimit
+	}
+	seen := make(map[string]struct{}, len(tags))
+	out := make([]ExtractedTag, 0, min(len(tags), limit))
+	for _, raw := range tags {
+		value := strings.TrimSpace(raw.Text)
+		if value == "" {
+			continue
+		}
+		value = strings.ReplaceAll(value, "\n", " ")
+		value = strings.ReplaceAll(value, "\t", " ")
+		value = strings.Join(strings.Fields(value), " ")
+		value = strings.Trim(value, ".,;:!?()[]{}<>\"`")
+		if value == "" {
+			continue
+		}
+
+		words := strings.Fields(value)
+		if len(words) > 4 {
+			value = strings.Join(words[:4], " ")
+		}
+		if len([]rune(value)) < 2 {
+			continue
+		}
+		category := normalizeTagCategory(raw.Category)
+		key := strings.ToLower(value) + "|" + category
+		if _, ok := seen[key]; ok {
+			continue
+		}
+		seen[key] = struct{}{}
+		out = append(out, ExtractedTag{
+			Text:     value,
+			Category: category,
+		})
+		if len(out) >= limit {
+			break
+		}
+	}
+	return out
+}
+
+func normalizeTagCategory(raw string) string {
+	value := strings.ToUpper(strings.TrimSpace(raw))
+	switch value {
+	case "PERSON", "ORGANIZATION", "LOCATION", "DATE", "TIME", "MONEY", "PERCENT", "PRODUCT", "EVENT", "OTHER":
+		return value
+	default:
+		return "OTHER"
+	}
 }
 
 func splitDocumentIntoChunks(content string, chunkSize int) []string {
