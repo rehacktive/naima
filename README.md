@@ -1,4 +1,4 @@
-<img src="internal/httpapi/ui/logo2.png" alt="Naima Logo" width="320">
+<img src="screenshots/naima_bash_code.png" alt="Naima Logo" width="320">
 
 Naima is a Go-based AI agent with persistent memory, a streaming web UI, Telegram integration, a personal knowledge base, and a tool-based execution model.
 
