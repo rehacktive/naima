@@ -126,6 +126,9 @@ func main() {
 		tools.NewLongMemoryTool(client, llmConfig.Model, llmConfig.EmbeddingModel, memStore),
 		tools.NewMemoryDumpTool(memoryInstance),
 	}
+	if emailTool := tools.NewEmailToolFromEnv(); emailTool != nil {
+		toolset = append(toolset, emailTool)
+	}
 	if token := strings.TrimSpace(os.Getenv("TELEGRAM_BOT_TOKEN")); token != "" {
 		toolset = append(toolset, tools.NewTelegramSendTool(token, os.Getenv("NAIMA_SESSION_FILE")))
 	}

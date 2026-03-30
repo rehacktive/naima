@@ -15,6 +15,7 @@ Naima combines:
 - web/news search through SearxNG
 - scheduled alarms and agent tasks
 - Telegram delivery for results and audio workflows
+- email inbox/send automation over POP3 + SMTP
 
 ## Run
 
@@ -110,6 +111,7 @@ Important env groups:
 - Tool defaults: `NAIMA_TOOL_<TOOL_NAME>`
 - Playwright: `NAIMA_PLAYWRIGHT_*`
 - Bash tool: `NAIMA_BASH_TOOL_URL`
+- Email: `NAIMA_EMAIL_*`
 - Tasks: `NAIMA_TASK_TIMEZONE`
 
 ## Documentation

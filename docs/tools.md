@@ -20,6 +20,7 @@ Naima loads tool guidance dynamically:
 | `task_scheduler` | persistent alarms and scheduled agent tasks |
 | `long_memory` | semantic recall and LLM summary of past conversation |
 | `memory_dump` | debug dump of current in-memory conversation state |
+| `email` | read mail over POP3, wait for confirmation emails, and send mail over SMTP |
 | `telegram_send` | send a Telegram message to the linked account when Telegram is configured |
 
 ## Notes by tool
@@ -117,6 +118,12 @@ Supports:
 ### `memory_dump`
 - debugging tool
 - returns current in-memory messages as JSON
+
+### `email`
+- inbox read/poll via POP3
+- message send via SMTP
+- useful for account signup, email confirmation, password reset, and mailbox automation flows
+- configured entirely from `NAIMA_EMAIL_*` env vars
 
 ### `telegram_send`
 - sends a text message to the linked Telegram account
