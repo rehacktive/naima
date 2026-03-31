@@ -20,6 +20,7 @@ import (
 
 	"naima/internal/agent"
 	"naima/internal/pkb"
+	"naima/internal/research"
 	"naima/internal/telegram"
 )
 
@@ -71,11 +72,16 @@ type pkbReader interface {
 	DeleteDocument(ctx context.Context, documentID int64) error
 }
 
+type researchReader interface {
+	ListRuns(ctx context.Context, limit int) ([]research.Run, error)
+	GetRun(ctx context.Context, id int64) (research.Run, error)
+}
+
 func IsEnabled() bool {
 	return strings.TrimSpace(os.Getenv("NAIMA_API_TOKEN")) != "" || strings.TrimSpace(os.Getenv("NAIMA_API_ADDR")) != ""
 }
 
-func RunServer(ctx context.Context, agentInstance *agent.Agent, pkbStore pkbReader, notifier *telegram.Notifier) error {
+func RunServer(ctx context.Context, agentInstance *agent.Agent, pkbStore pkbReader, researchStore researchReader, notifier *telegram.Notifier) error {
 	cfg, err := loadConfig()
 	if err != nil {
 		return err
@@ -122,6 +128,63 @@ func RunServer(ctx context.Context, agentInstance *agent.Agent, pkbStore pkbRead
 			writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 			return
 		}
+	})
+	mux.HandleFunc("/api/research", func(w http.ResponseWriter, r *http.Request) {
+		if !authorizeRequest(r, cfg.Token) {
+			writeError(w, http.StatusUnauthorized, "unauthorized")
+			return
+		}
+		if r.Method != http.MethodGet {
+			writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+			return
+		}
+		if researchStore == nil {
+			writeError(w, http.StatusServiceUnavailable, "research is not configured")
+			return
+		}
+		limit := 20
+		if raw := strings.TrimSpace(r.URL.Query().Get("limit")); raw != "" {
+			n, err := strconv.Atoi(raw)
+			if err != nil || n <= 0 {
+				writeError(w, http.StatusBadRequest, "invalid limit")
+				return
+			}
+			limit = n
+		}
+		runs, err := researchStore.ListRuns(r.Context(), limit)
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		for i := range runs {
+			runs[i].Logs = ""
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"runs": runs, "count": len(runs)})
+	})
+	mux.HandleFunc("/api/research/", func(w http.ResponseWriter, r *http.Request) {
+		if !authorizeRequest(r, cfg.Token) {
+			writeError(w, http.StatusUnauthorized, "unauthorized")
+			return
+		}
+		if r.Method != http.MethodGet {
+			writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+			return
+		}
+		if researchStore == nil {
+			writeError(w, http.StatusServiceUnavailable, "research is not configured")
+			return
+		}
+		id, err := parsePKBID(r.URL.Path, "/api/research/")
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		run, err := researchStore.GetRun(r.Context(), id)
+		if err != nil {
+			writeError(w, http.StatusNotFound, err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{"run": run})
 	})
 	mux.HandleFunc("/api/messages", func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodPost {

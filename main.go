@@ -24,6 +24,7 @@ import (
 	"naima/internal/llm"
 	"naima/internal/memory"
 	"naima/internal/pkb"
+	"naima/internal/research"
 	"naima/internal/safeio"
 	"naima/internal/tasks"
 	"naima/internal/telegram"
@@ -112,6 +113,11 @@ func main() {
 		os.Exit(1)
 	}
 	defer pkbStorage.Close()
+	researchManager, err := research.NewManager(ctx, pgvectorDSN(), pkbStorage, client, llmConfig.Model, pkbIngestConfig(), searxURL(), telegramNotifier)
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err.Error())
+		os.Exit(1)
+	}
 
 	toolset := []tools.Tool{
 		tools.NewTimeTool(),
@@ -119,6 +125,7 @@ func main() {
 		tools.NewWebSearchTool(searxURL()),
 		tools.NewNewsDigestTool(searxURL()),
 		tools.NewPersonalKnowledgeBaseTool(pkbStorage, pkbIngestConfig()),
+		tools.NewDeepResearchTool(researchManager),
 		tools.NewPKBRetrieveTool(client, llmConfig.EmbeddingModel, pkbStorage),
 		tools.NewBashTool(bashToolURL()),
 		tools.NewPlaywrightTool(playwrightHeadless(), envInt("NAIMA_PLAYWRIGHT_TIMEOUT_MS", 30000)),
@@ -150,6 +157,10 @@ func main() {
 		fmt.Fprintln(os.Stderr, err.Error())
 		os.Exit(1)
 	}
+	if err := researchManager.Start(ctx); err != nil {
+		fmt.Fprintln(os.Stderr, err.Error())
+		os.Exit(1)
+	}
 
 	apiEnabled := httpapi.IsEnabled()
 	telegramEnabled := strings.TrimSpace(os.Getenv("TELEGRAM_BOT_TOKEN")) != ""
@@ -167,7 +178,7 @@ func main() {
 		running++
 		go func() {
 			log.Infof("[agent] starting web interface")
-			errCh <- httpapi.RunServer(ctx, agentInstance, pkbStorage, telegramNotifier)
+			errCh <- httpapi.RunServer(ctx, agentInstance, pkbStorage, researchManager, telegramNotifier)
 		}()
 	}
 

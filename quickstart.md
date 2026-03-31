@@ -158,7 +158,19 @@ docker compose down
 docker compose down -v
 ```
 
-## 9) Next docs
+## 9) Embedding maintenance
+
+If you change `OPENAI_EMBEDDING_MODEL` or `NAIMA_PGVECTOR_EMBEDDING_DIMS`, regenerate stored PKB and memory embeddings so vector dimensions stay consistent:
+
+```bash
+./scripts/rebuild_mismatched_pkb_embeddings.sh
+./scripts/rebuild_mismatched_pkb_embeddings.sh --apply
+./scripts/rebuild_mismatched_pkb_embeddings.sh --apply --restart
+```
+
+This command dry-runs by default and only rewrites mismatched vectors when `--apply` is provided.
+
+## 10) Next docs
 
 - API reference: `docs/api.md`
 - Tools reference: `docs/tools.md`

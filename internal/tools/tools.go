@@ -8,6 +8,14 @@ type Tool interface {
 	GetParameters() Parameters
 }
 
+type MaxToolRoundsProvider interface {
+	MaxToolRounds() int
+}
+
+type ImmediateToolProvider interface {
+	IsImmediateForParams(params string) bool
+}
+
 type Parameters struct {
 	Type       string   `json:"type"`
 	Properties any      `json:"properties"`

@@ -222,9 +222,10 @@ func (a *Agent) processMessage(ctx context.Context, input string, onDelta func(s
 		return "", fmt.Errorf("llm request failed: %w", err)
 	}
 
+	toolRoundLimit := maxToolRoundsFor(activeTools)
 	for toolRound := 1; len(msg.ToolCalls) > 0; toolRound++ {
-		if toolRound > maxToolRounds {
-			return "", fmt.Errorf("tool execution exceeded max rounds (%d)", maxToolRounds)
+		if toolRound > toolRoundLimit {
+			return "", fmt.Errorf("tool execution exceeded max rounds (%d)", toolRoundLimit)
 		}
 
 		log.Infof("[agent] model requested tool calls round=%d count=%d", toolRound, len(msg.ToolCalls))
@@ -236,7 +237,11 @@ func (a *Agent) processMessage(ctx context.Context, input string, onDelta func(s
 				return "", fmt.Errorf("tool not found: %s", call.Function.Name)
 			}
 
-			log.Infof("[agent] executing tool name=%s immediate=%t", call.Function.Name, tool.IsImmediate())
+			immediate := tool.IsImmediate()
+			if provider, ok := tool.(tools.ImmediateToolProvider); ok {
+				immediate = provider.IsImmediateForParams(call.Function.Arguments)
+			}
+			log.Infof("[agent] executing tool name=%s immediate=%t", call.Function.Name, immediate)
 			emitOp(onOp, fmt.Sprintf("executing tool: %s", call.Function.Name))
 			out := tool.GetFunction()(call.Function.Arguments)
 			log.Infof("[agent] tool output name=%s chars=%d preview=%s", call.Function.Name, len(out), truncateForLog(out, maxToolLogChars))
@@ -245,18 +250,22 @@ func (a *Agent) processMessage(ctx context.Context, input string, onDelta func(s
 				log.Warnf("[agent] tool returned error name=%s error=%s", call.Function.Name, toolErr)
 				emitOp(onOp, fmt.Sprintf("tool error: %s", toolErr))
 			}
-			if tool.IsImmediate() {
+			if immediate {
+				reply := out
+				if msg, ok := extractImmediateUserMessage(out); ok {
+					reply = msg
+				}
 				now = time.Now().UTC()
 				a.mu.Lock()
 				memoryStore.AddMessage(memstorage.Message{
 					Role:      openai.ChatMessageRoleAssistant,
-					Content:   out,
+					Content:   reply,
 					CreatedAt: &now,
 				}, false)
 				a.mu.Unlock()
 				log.Infof("[agent] replied via immediate tool name=%s elapsed=%s", call.Function.Name, time.Since(startedAt).Round(time.Millisecond))
 				emitOp(onOp, "reply sent (immediate tool)")
-				return out, nil
+				return reply, nil
 			}
 
 			messages = append(messages, openai.ChatCompletionMessage{
@@ -684,12 +693,51 @@ func extractToolError(out string) (string, bool) {
 	return msg, true
 }
 
+func extractImmediateUserMessage(out string) (string, bool) {
+	var payload map[string]any
+	if err := json.Unmarshal([]byte(out), &payload); err != nil {
+		return "", false
+	}
+	raw, ok := payload["user_message"]
+	if !ok {
+		return "", false
+	}
+	msg, ok := raw.(string)
+	if !ok {
+		return "", false
+	}
+	msg = strings.TrimSpace(msg)
+	if msg == "" {
+		return "", false
+	}
+	return msg, true
+}
+
 func enabledMap(toolMap map[string]tools.Tool) map[string]bool {
 	out := make(map[string]bool, len(toolMap))
 	for name := range toolMap {
 		out[name] = true
 	}
 	return out
+}
+
+func maxToolRoundsFor(toolset map[string]tools.Tool) int {
+	limit := maxToolRounds
+	maxAllowed := 3 * maxToolRounds
+	for _, tool := range toolset {
+		provider, ok := tool.(tools.MaxToolRoundsProvider)
+		if !ok {
+			continue
+		}
+		candidate := provider.MaxToolRounds()
+		if candidate > maxAllowed {
+			candidate = maxAllowed
+		}
+		if candidate > limit {
+			limit = candidate
+		}
+	}
+	return limit
 }
 
 func (a *Agent) enabledToolsLocked() map[string]tools.Tool {

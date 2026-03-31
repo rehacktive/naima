@@ -8,6 +8,7 @@ Naima combines:
 - chat over web UI, REST API, or Telegram
 - Memorya-backed conversation memory persisted in PostgreSQL/pgvector
 - personal knowledge base ingestion for URLs, notes, and files
+- deep research workflow with persisted background runs, status tracking, cancel/delete controls, and synthesized PKB response documents
 - automatic LLM-based tag extraction for ingested PKB documents
 - semantic retrieval over PKB document chunks
 - browser automation through Playwright
@@ -93,10 +94,30 @@ Exposed ports:
 - at startup, only missing tag/embedding rows are backfilled (existing rows are kept)
 - semantic retrieval used during chat for PKB-like questions
 
+### Deep Research
+- async background execution persisted in PostgreSQL
+- run status: `queued`, `in_progress`, `completed`, `failed`, `canceled`
+- run logs and timestamps available later through the tool and REST API
+- source ingestion includes malformed/off-scope document rejection
+- if a selected source is rejected, the runner tries additional search queries to reach the requested source count
+- completion notification via Telegram when configured
+
 ### Memory
 - active context managed by Memorya
 - embeddings persisted in pgvector
 - summarization compacts context when limits are reached
+
+## Maintenance
+
+Rebuild mismatched PKB and memory embeddings with the current embedding model:
+
+```sh
+./scripts/rebuild_mismatched_pkb_embeddings.sh
+./scripts/rebuild_mismatched_pkb_embeddings.sh --apply
+./scripts/rebuild_mismatched_pkb_embeddings.sh --apply --restart
+```
+
+This uses the current `OPENAI_EMBEDDING_MODEL` and `NAIMA_PGVECTOR_EMBEDDING_DIMS` to detect and regenerate vectors whose stored dimensions no longer match the active model.
 
 ## Configuration
 

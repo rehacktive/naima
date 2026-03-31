@@ -14,6 +14,7 @@ Naima loads tool guidance dynamically:
 | `web_search` | generic search over local SearxNG |
 | `news_digest` | curated news digest over SearxNG news results |
 | `personal_knowledge_base` | CRUD over topics/documents plus ingestion and temporal search |
+| `deep_research` | create persisted background research runs, track status, manage lifecycle, and store final researched results |
 | `pkb_retrieve` | explicit semantic retrieval over ingested PKB documents and chunks |
 | `bash` | bash execution inside an isolated Debian sidecar container |
 | `playwright` | browser automation and page extraction |
@@ -80,6 +81,21 @@ File ingestion:
 - files are stored locally
 - text is extracted through Tika
 - extracted content is saved as a PKB document
+
+### `deep_research`
+- creates a persisted background research run
+- stores status, timestamps, and logs in PostgreSQL
+- supports cancel/stop and delete operations for persisted runs
+- creates or reuses a PKB topic
+- stores the user research brief as a note document
+- plans multiple web/news queries from that brief
+- rejects malformed or off-scope documents before storing them in PKB
+- if selected sources are skipped, runs additional searches to try to reach the requested source count
+- ingests accepted URLs into the same topic
+- writes a final response document in the same topic with findings and source links
+- supports later status checks through the tool and REST API
+- `create/start`, `cancel/stop`, and `delete` reply immediately so the UI is not blocked waiting on background work
+- can raise the agent tool-round ceiling up to `30` when enabled
 
 ### `pkb_retrieve`
 - semantic retrieval over `pkb_embeddings`

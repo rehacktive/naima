@@ -627,6 +627,16 @@ func (s *Storage) SearchRelevantDocuments(ctx context.Context, queryEmbeddings [
 	}
 
 	rows, err := s.pool.Query(ctx, `
+WITH compatible_embeddings AS (
+	SELECT
+		document_id,
+		chunk_index,
+		chunk_content,
+		embeddings
+	FROM pkb_embeddings
+	WHERE embeddings IS NOT NULL
+	  AND vector_dims(embeddings) = $2
+)
 SELECT
 	e.document_id,
 	e.chunk_index,
@@ -636,17 +646,15 @@ SELECT
 	t.title,
 	d.kind,
 	d.title,
-	d.source_url,
-	d.ingest_method,
-	d.content,
-	d.created_at,
-	d.updated_at
-FROM pkb_embeddings e
+d.source_url,
+d.ingest_method,
+d.content,
+d.created_at,
+d.updated_at
+FROM compatible_embeddings e
 JOIN pkb_documents d ON d.id = e.document_id
 JOIN pkb_topics t ON t.id = d.topic_id
-WHERE e.embeddings IS NOT NULL
-  AND vector_dims(e.embeddings) = $2
-  AND (e.embeddings <=> $1::vector) <= $3
+WHERE (e.embeddings <=> $1::vector) <= $3
 ORDER BY e.embeddings <=> $1::vector
 LIMIT $4
 `, vectorLiteral(queryEmbeddings), len(queryEmbeddings), s.retrievalThreshold, max(docLimit*chunkLimit*4, 12))

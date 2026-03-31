@@ -74,6 +74,27 @@ curl -sS -X POST "http://localhost:8080/api/tools" \
   -d '{"name":"web_search","enabled":false}'
 ```
 
+## Deep Research
+
+List recent research runs:
+
+```sh
+curl -sS "http://localhost:8080/api/research?limit=20" \
+  -H "Authorization: Bearer $NAIMA_API_TOKEN"
+```
+
+Get one research run with status and logs:
+
+```sh
+curl -sS "http://localhost:8080/api/research/1" \
+  -H "Authorization: Bearer $NAIMA_API_TOKEN"
+```
+
+Notes:
+- research runs are started through the `deep_research` tool, not through a dedicated REST create endpoint
+- these endpoints are for later inspection after the page is closed
+- run logs are persisted in the database and returned by `GET /api/research/:id`
+
 ## Personal Knowledge Base
 
 Get PKB graph:
@@ -161,6 +182,16 @@ Tag behavior:
 - extraction is delegated to the configured chat model
 - tags are persisted with text+category and linked to documents in PostgreSQL
 - on startup, missing tags/embeddings are backfilled only for documents that do not already have them
+
+## Maintenance
+
+Rebuild mismatched PKB and memory embeddings using the current embedding model:
+
+```sh
+./scripts/rebuild_mismatched_pkb_embeddings.sh
+./scripts/rebuild_mismatched_pkb_embeddings.sh --apply
+./scripts/rebuild_mismatched_pkb_embeddings.sh --apply --restart
+```
 
 ## Web UI
 
