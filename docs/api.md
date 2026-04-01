@@ -74,6 +74,9 @@ curl -sS -X POST "http://localhost:8080/api/tools" \
   -d '{"name":"web_search","enabled":false}'
 ```
 
+Note:
+- Persona storage is currently accessed through the `persona` tool, not through dedicated REST endpoints
+
 ## Deep Research
 
 List recent research runs:
@@ -192,6 +195,15 @@ Rebuild mismatched PKB and memory embeddings using the current embedding model:
 ./scripts/rebuild_mismatched_pkb_embeddings.sh --apply
 ./scripts/rebuild_mismatched_pkb_embeddings.sh --apply --restart
 ```
+
+## Persona
+
+Current behavior:
+- explicit persona facts are stored through the `persona` tool
+- recent conversation can also be analyzed in background to infer persona facts
+- stored facts can be reused by other tools, such as defaulting email recipients or remembering user interests
+- when Persona storage is empty, `GET /api/persona/bootstrap` reports that the UI should ask for the user's name
+- `POST /api/persona/name` stores the onboarding name explicitly
 
 ## Web UI
 

@@ -7,6 +7,7 @@ Naima is a Go-based AI agent with persistent memory, a streaming web UI, Telegra
 Naima combines:
 - chat over web UI, REST API, or Telegram
 - Memorya-backed conversation memory persisted in PostgreSQL/pgvector
+- persona storage for explicit and inferred user profile facts such as email, interests, preferences, and location
 - personal knowledge base ingestion for URLs, notes, and files
 - deep research workflow with persisted background runs, status tracking, cancel/delete controls, and synthesized PKB response documents
 - automatic LLM-based tag extraction for ingested PKB documents
@@ -102,6 +103,13 @@ Exposed ports:
 - if a selected source is rejected, the runner tries additional search queries to reach the requested source count
 - completion notification via Telegram when configured
 
+### Persona
+- durable user facts stored in PostgreSQL
+- facts can be saved explicitly through the `persona` tool
+- recent conversation is periodically analyzed in background to infer useful stable facts
+- when Persona storage is still empty, web UI and Telegram onboarding ask for the user's name and store it explicitly
+- stored persona data can be reused by tools, for example email can fall back to the saved user email address when no recipient is specified
+
 ### Memory
 - active context managed by Memorya
 - embeddings persisted in pgvector
@@ -128,6 +136,7 @@ Important env groups:
 - REST/UI: `NAIMA_API_*`, `NAIMA_UI_*`
 - Telegram: `TELEGRAM_BOT_TOKEN`, `NAIMA_TELEGRAM_STREAM`, `NAIMA_TTS_*`
 - Memory/pgvector: `NAIMA_MEMORY_*`, `NAIMA_PGVECTOR_*`
+- Persona: `NAIMA_PERSONA_*`
 - PKB/Tika: `NAIMA_TIKA_*`, `NAIMA_PKB_*`
 - Tool defaults: `NAIMA_TOOL_<TOOL_NAME>`
 - Playwright: `NAIMA_PLAYWRIGHT_*`

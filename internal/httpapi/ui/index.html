@@ -1555,6 +1555,7 @@
     let newConversationOnNextSend = true;
     let currentMessageController = null;
     let isSendingMessage = false;
+    let awaitingPersonaName = false;
     let currentTools = [];
     let pkbChatSelection = null;
     let chatScopeState = null;
@@ -1610,6 +1611,7 @@
       setStatus("Token saved locally.");
       loadTools();
       loadMemoryStatus();
+      loadPersonaBootstrap();
     });
     themeSelectEl.addEventListener("change", () => {
       const value = normalizeTheme(themeSelectEl.value);
@@ -1639,6 +1641,7 @@
       resetMemoryOnRefresh();
       loadTools();
       loadMemoryStatus();
+      loadPersonaBootstrap();
     } else {
       renderTools([]);
       renderMemoryStatus(null);
@@ -3207,6 +3210,11 @@
         return;
       }
 
+      if (awaitingPersonaName) {
+        await submitPersonaName(message);
+        return;
+      }
+
       addBubble("user", message);
       addOp("message queued");
       inputEl.value = "";
@@ -3283,6 +3291,65 @@
         }
       } finally {
         currentMessageController = null;
+        setMessageSendingState(false);
+      }
+    }
+
+    async function loadPersonaBootstrap() {
+      const token = tokenEl.value.trim();
+      if (!token) {
+        awaitingPersonaName = false;
+        return;
+      }
+      try {
+        const resp = await fetch("/api/persona/bootstrap", { headers: authHeaders() });
+        if (!resp.ok) {
+          return;
+        }
+        const data = await resp.json();
+        if (data && data.needs_name) {
+          awaitingPersonaName = true;
+          addBubble("ai", data.message || "Before we start, what should I call you?");
+          setStatus("Waiting for your name.");
+        } else {
+          awaitingPersonaName = false;
+        }
+      } catch (_) {
+      }
+    }
+
+    async function submitPersonaName(name) {
+      const token = tokenEl.value.trim();
+      if (!token) {
+        setStatus("Set API token first.");
+        return;
+      }
+      addBubble("user", name);
+      inputEl.value = "";
+      setMessageSendingState(true);
+      setStatus("Saving your name...");
+      try {
+        const resp = await fetch("/api/persona/name", {
+          method: "POST",
+          headers: authHeaders(),
+          body: JSON.stringify({ name })
+        });
+        const text = await resp.text();
+        if (!resp.ok) {
+          throw new Error(text || ("HTTP " + resp.status));
+        }
+        let payload = {};
+        try {
+          payload = JSON.parse(text);
+        } catch (_) {
+        }
+        awaitingPersonaName = false;
+        addBubble("ai", payload.message || ("Nice to meet you, " + name + "."));
+        setStatus("Name saved.");
+      } catch (err) {
+        addBubble("ai", "I couldn't save your name yet. Please try again.");
+        setStatus("Save failed: " + (err?.message || String(err)));
+      } finally {
         setMessageSendingState(false);
       }
     }

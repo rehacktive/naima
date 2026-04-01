@@ -3,6 +3,7 @@ package tools
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"crypto/tls"
 	"encoding/base64"
 	"fmt"
@@ -21,6 +22,8 @@ import (
 	"strconv"
 	"strings"
 	"time"
+
+	"naima/internal/persona"
 )
 
 const (
@@ -45,8 +48,13 @@ var (
 )
 
 type EmailTool struct {
-	pop3 emailPOP3Config
-	smtp emailSMTPConfig
+	pop3    emailPOP3Config
+	smtp    emailSMTPConfig
+	persona PersonaLookup
+}
+
+type PersonaLookup interface {
+	BestFact(ctx context.Context, key string) (persona.Fact, bool, error)
 }
 
 type emailPOP3Config struct {
@@ -110,7 +118,7 @@ type emailMessage struct {
 	ReceivedAt time.Time `json:"-"`
 }
 
-func NewEmailToolFromEnv() Tool {
+func NewEmailToolFromEnv(personaStore PersonaLookup) Tool {
 	timeout := time.Duration(envIntDefault("NAIMA_EMAIL_TIMEOUT_MS", int(defaultEmailTimeout/time.Millisecond))) * time.Millisecond
 	pop3TLS := envBoolDefault("NAIMA_EMAIL_POP3_TLS", true)
 	smtpImplicitTLS := envBoolDefault("NAIMA_EMAIL_SMTP_IMPLICIT_TLS", false)
@@ -147,6 +155,7 @@ func NewEmailToolFromEnv() Tool {
 			InsecureSkipVerify: envBoolDefault("NAIMA_EMAIL_SMTP_INSECURE_SKIP_VERIFY", false),
 			Timeout:            timeout,
 		},
+		persona: personaStore,
 	}
 }
 
@@ -452,6 +461,13 @@ func (t *EmailTool) sendMessage(in emailParams) string {
 	to := cleanEmailAddrs(in.To)
 	cc := cleanEmailAddrs(in.Cc)
 	bcc := cleanEmailAddrs(in.Bcc)
+	if len(to)+len(cc)+len(bcc) == 0 && t.persona != nil {
+		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		defer cancel()
+		if fact, ok, err := t.persona.BestFact(ctx, "email"); err == nil && ok && strings.TrimSpace(fact.Value) != "" {
+			to = []string{strings.TrimSpace(fact.Value)}
+		}
+	}
 	if len(to)+len(cc)+len(bcc) == 0 {
 		return errorJSON("at least one recipient is required")
 	}

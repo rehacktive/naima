@@ -42,6 +42,14 @@ Generate `NAIMA_UI_BASIC_AUTH_PASS` with:
 ./hash_ui_basic_auth_pass.sh "your_password"
 ```
 
+Optional Persona extraction knobs:
+
+```env
+NAIMA_PERSONA_EXTRACT_INTERVAL_SEC=120
+NAIMA_PERSONA_LOOKBACK_MESSAGES=24
+NAIMA_PERSONA_MAX_FACTS=12
+```
+
 ## 3) LLM provider setup
 
 Naima uses OpenAI-compatible APIs. Choose one of these patterns.
@@ -174,3 +182,8 @@ This command dry-runs by default and only rewrites mismatched vectors when `--ap
 
 - API reference: `docs/api.md`
 - Tools reference: `docs/tools.md`
+
+Useful Persona note:
+- use the `persona` tool to inspect or explicitly save facts like email, interests, or location
+- Naima also infers persona facts from recent conversation in background and reuses them in later tool calls when relevant
+- on a fresh Persona store, the web UI and Telegram onboarding will first ask for your name and save it explicitly

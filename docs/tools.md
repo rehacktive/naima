@@ -14,6 +14,7 @@ Naima loads tool guidance dynamically:
 | `web_search` | generic search over local SearxNG |
 | `news_digest` | curated news digest over SearxNG news results |
 | `personal_knowledge_base` | CRUD over topics/documents plus ingestion and temporal search |
+| `persona` | store and retrieve durable user facts, including facts inferred from conversation |
 | `deep_research` | create persisted background research runs, track status, manage lifecycle, and store final researched results |
 | `pkb_retrieve` | explicit semantic retrieval over ingested PKB documents and chunks |
 | `bash` | bash execution inside an isolated Debian sidecar container |
@@ -82,6 +83,14 @@ File ingestion:
 - text is extracted through Tika
 - extracted content is saved as a PKB document
 
+### `persona`
+- stores durable user facts such as `email`, `name`, `location`, `timezone`, `interest`, `news_interest`, `preference`, and `goal`
+- supports `list`, `get`, `set/save`, and `delete`
+- facts can be added explicitly by the user or inferred in background from recent conversation
+- when persona storage starts empty, the web UI and Telegram onboarding ask for the user's name first and store it explicitly
+- background extraction is periodic and only reprocesses conversation when new messages were added
+- useful as shared context for other tools, for example the email tool can use the stored `email` fact as the default recipient
+
 ### `deep_research`
 - creates a persisted background research run
 - stores status, timestamps, and logs in PostgreSQL
@@ -140,6 +149,7 @@ Supports:
 - message send via SMTP
 - useful for account signup, email confirmation, password reset, and mailbox automation flows
 - configured entirely from `NAIMA_EMAIL_*` env vars
+- if no `to`/`cc`/`bcc` recipient is provided, the tool tries the saved persona `email` fact first
 
 ### `telegram_send`
 - sends a text message to the linked Telegram account

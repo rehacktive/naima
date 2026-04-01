@@ -23,6 +23,7 @@ import (
 	"naima/internal/httpapi"
 	"naima/internal/llm"
 	"naima/internal/memory"
+	"naima/internal/persona"
 	"naima/internal/pkb"
 	"naima/internal/research"
 	"naima/internal/safeio"
@@ -113,6 +114,11 @@ func main() {
 		os.Exit(1)
 	}
 	defer pkbStorage.Close()
+	personaManager, err := persona.NewManager(ctx, pgvectorDSN(), client, llmConfig.Model, time.Duration(envInt("NAIMA_PERSONA_EXTRACT_INTERVAL_SEC", 120))*time.Second, envInt("NAIMA_PERSONA_LOOKBACK_MESSAGES", 24), envInt("NAIMA_PERSONA_MAX_FACTS", 12))
+	if err != nil {
+		fmt.Fprintln(os.Stderr, err.Error())
+		os.Exit(1)
+	}
 	researchManager, err := research.NewManager(ctx, pgvectorDSN(), pkbStorage, client, llmConfig.Model, pkbIngestConfig(), searxURL(), telegramNotifier)
 	if err != nil {
 		fmt.Fprintln(os.Stderr, err.Error())
@@ -125,6 +131,7 @@ func main() {
 		tools.NewWebSearchTool(searxURL()),
 		tools.NewNewsDigestTool(searxURL()),
 		tools.NewPersonalKnowledgeBaseTool(pkbStorage, pkbIngestConfig()),
+		tools.NewPersonaTool(personaManager),
 		tools.NewDeepResearchTool(researchManager),
 		tools.NewPKBRetrieveTool(client, llmConfig.EmbeddingModel, pkbStorage),
 		tools.NewBashTool(bashToolURL()),
@@ -133,7 +140,7 @@ func main() {
 		tools.NewLongMemoryTool(client, llmConfig.Model, llmConfig.EmbeddingModel, memStore),
 		tools.NewMemoryDumpTool(memoryInstance),
 	}
-	if emailTool := tools.NewEmailToolFromEnv(); emailTool != nil {
+	if emailTool := tools.NewEmailToolFromEnv(personaManager); emailTool != nil {
 		toolset = append(toolset, emailTool)
 	}
 	if token := strings.TrimSpace(os.Getenv("TELEGRAM_BOT_TOKEN")); token != "" {
@@ -149,6 +156,7 @@ func main() {
 		llmConfig.EmbeddingModel,
 		memoryInstance,
 		pkbStorage,
+		personaManager,
 		toolset,
 	)
 	applyDefaultToolStates(agentInstance)
@@ -158,6 +166,10 @@ func main() {
 		os.Exit(1)
 	}
 	if err := researchManager.Start(ctx); err != nil {
+		fmt.Fprintln(os.Stderr, err.Error())
+		os.Exit(1)
+	}
+	if err := personaManager.Start(ctx, memoryInstance); err != nil {
 		fmt.Fprintln(os.Stderr, err.Error())
 		os.Exit(1)
 	}
@@ -178,7 +190,7 @@ func main() {
 		running++
 		go func() {
 			log.Infof("[agent] starting web interface")
-			errCh <- httpapi.RunServer(ctx, agentInstance, pkbStorage, researchManager, telegramNotifier)
+			errCh <- httpapi.RunServer(ctx, agentInstance, pkbStorage, researchManager, personaManager, telegramNotifier)
 		}()
 	}
 
@@ -186,7 +198,7 @@ func main() {
 		running++
 		go func() {
 			log.Infof("[agent] starting telegram interface")
-			errCh <- telegram.RunBot(ctx, agentInstance)
+			errCh <- telegram.RunBot(ctx, agentInstance, personaManager)
 		}()
 	}
 

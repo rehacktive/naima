@@ -19,6 +19,7 @@ import (
 	log "github.com/sirupsen/logrus"
 
 	"naima/internal/agent"
+	"naima/internal/persona"
 	"naima/internal/pkb"
 	"naima/internal/research"
 	"naima/internal/telegram"
@@ -40,6 +41,10 @@ type messageRequest struct {
 
 type messageResponse struct {
 	Response string `json:"response"`
+}
+
+type personaNameRequest struct {
+	Name string `json:"name"`
 }
 
 type streamEvent struct {
@@ -77,11 +82,16 @@ type researchReader interface {
 	GetRun(ctx context.Context, id int64) (research.Run, error)
 }
 
+type personaReader interface {
+	IsEmpty(ctx context.Context) (bool, error)
+	SetFact(ctx context.Context, fact persona.Fact) (persona.Fact, error)
+}
+
 func IsEnabled() bool {
 	return strings.TrimSpace(os.Getenv("NAIMA_API_TOKEN")) != "" || strings.TrimSpace(os.Getenv("NAIMA_API_ADDR")) != ""
 }
 
-func RunServer(ctx context.Context, agentInstance *agent.Agent, pkbStore pkbReader, researchStore researchReader, notifier *telegram.Notifier) error {
+func RunServer(ctx context.Context, agentInstance *agent.Agent, pkbStore pkbReader, researchStore researchReader, personaStore personaReader, notifier *telegram.Notifier) error {
 	cfg, err := loadConfig()
 	if err != nil {
 		return err
@@ -128,6 +138,72 @@ func RunServer(ctx context.Context, agentInstance *agent.Agent, pkbStore pkbRead
 			writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 			return
 		}
+	})
+	mux.HandleFunc("/api/persona/bootstrap", func(w http.ResponseWriter, r *http.Request) {
+		if !authorizeRequest(r, cfg.Token) {
+			writeError(w, http.StatusUnauthorized, "unauthorized")
+			return
+		}
+		if r.Method != http.MethodGet {
+			writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+			return
+		}
+		if personaStore == nil {
+			writeJSON(w, http.StatusOK, map[string]any{"needs_name": false})
+			return
+		}
+		empty, err := personaStore.IsEmpty(r.Context())
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{
+			"needs_name": empty,
+			"message":    "Before we start, what should I call you?",
+		})
+	})
+	mux.HandleFunc("/api/persona/name", func(w http.ResponseWriter, r *http.Request) {
+		if !authorizeRequest(r, cfg.Token) {
+			writeError(w, http.StatusUnauthorized, "unauthorized")
+			return
+		}
+		if r.Method != http.MethodPost {
+			writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+			return
+		}
+		if personaStore == nil {
+			writeError(w, http.StatusServiceUnavailable, "persona storage is not configured")
+			return
+		}
+		r.Body = http.MaxBytesReader(w, r.Body, jsonBodyLimit)
+		var req personaNameRequest
+		decoder := json.NewDecoder(r.Body)
+		decoder.DisallowUnknownFields()
+		if err := decoder.Decode(&req); err != nil {
+			writeError(w, http.StatusBadRequest, "invalid request body")
+			return
+		}
+		name := strings.TrimSpace(req.Name)
+		if name == "" {
+			writeError(w, http.StatusBadRequest, "name is required")
+			return
+		}
+		fact, err := personaStore.SetFact(r.Context(), persona.Fact{
+			Key:        "name",
+			Value:      name,
+			Source:     "explicit",
+			Confidence: 0.99,
+			Reason:     "Provided explicitly during onboarding.",
+		})
+		if err != nil {
+			writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		writeJSON(w, http.StatusOK, map[string]any{
+			"status":  "ok",
+			"fact":    fact,
+			"message": "Nice to meet you, " + fact.Value + ".",
+		})
 	})
 	mux.HandleFunc("/api/research", func(w http.ResponseWriter, r *http.Request) {
 		if !authorizeRequest(r, cfg.Token) {

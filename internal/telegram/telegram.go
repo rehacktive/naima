@@ -22,6 +22,7 @@ import (
 	"naima/internal/safeio"
 
 	"naima/internal/agent"
+	"naima/internal/persona"
 )
 
 const defaultSessionFile = ".naima_session.json"
@@ -32,11 +33,17 @@ const (
 )
 
 type sessionData struct {
-	UserID      int64  `json:"user_id"`
-	PendingCode string `json:"pending_code"`
+	UserID              int64  `json:"user_id"`
+	PendingCode         string `json:"pending_code"`
+	AwaitingPersonaName bool   `json:"awaiting_persona_name,omitempty"`
 }
 
-func RunBot(ctx context.Context, agentInstance *agent.Agent) error {
+type personaStore interface {
+	IsEmpty(ctx context.Context) (bool, error)
+	SetFact(ctx context.Context, fact persona.Fact) (persona.Fact, error)
+}
+
+func RunBot(ctx context.Context, agentInstance *agent.Agent, personaManager personaStore) error {
 	token := os.Getenv("TELEGRAM_BOT_TOKEN")
 	if token == "" {
 		return errors.New("TELEGRAM_BOT_TOKEN is not set")
@@ -99,6 +106,14 @@ func RunBot(ctx context.Context, agentInstance *agent.Agent) error {
 						response = fmt.Sprintf("Error: %s", err.Error())
 					} else {
 						response = "Linked. You can now interact with this agent."
+						if personaManager != nil {
+							if empty, err := personaManager.IsEmpty(ctx); err == nil && empty {
+								session.AwaitingPersonaName = true
+								if err := saveSession(sessionPath, session); err == nil {
+									response += "\n\nBefore we start, what should I call you?"
+								}
+							}
+						}
 					}
 				}
 
@@ -111,6 +126,37 @@ func RunBot(ctx context.Context, agentInstance *agent.Agent) error {
 				msg := tgbotapi.NewMessage(update.Message.Chat.ID, "Not authorized for this agent.")
 				_, _ = bot.Send(msg)
 				continue
+			}
+
+			if session.AwaitingPersonaName {
+				name := strings.TrimSpace(update.Message.Text)
+				if name == "" {
+					msg := tgbotapi.NewMessage(update.Message.Chat.ID, "Please send your name as plain text.")
+					_, _ = bot.Send(msg)
+					continue
+				}
+				if personaManager == nil {
+					session.AwaitingPersonaName = false
+					_ = saveSession(sessionPath, session)
+				} else {
+					fact, err := personaManager.SetFact(ctx, persona.Fact{
+						Key:        "name",
+						Value:      name,
+						Source:     "explicit",
+						Confidence: 0.99,
+						Reason:     "Provided explicitly during Telegram onboarding.",
+					})
+					if err != nil {
+						msg := tgbotapi.NewMessage(update.Message.Chat.ID, "Failed to save your name: "+err.Error())
+						_, _ = bot.Send(msg)
+						continue
+					}
+					session.AwaitingPersonaName = false
+					_ = saveSession(sessionPath, session)
+					msg := tgbotapi.NewMessage(update.Message.Chat.ID, "Nice to meet you, "+fact.Value+".")
+					_, _ = bot.Send(msg)
+					continue
+				}
 			}
 
 			text := strings.TrimSpace(update.Message.Text)

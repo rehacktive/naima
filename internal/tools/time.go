@@ -2,6 +2,8 @@ package tools
 
 import (
 	"encoding/json"
+	"os"
+	"strings"
 	"time"
 )
 
@@ -21,7 +23,8 @@ func (t *TimeTool) GetDescription() string {
 
 func (t *TimeTool) GetFunction() func(params string) string {
 	return func(_ string) string {
-		now := time.Now()
+		loc := resolveTimeLocation()
+		now := time.Now().In(loc)
 		payload := map[string]string{
 			"local": now.Format(time.RFC3339),
 			"utc":   now.UTC().Format(time.RFC3339),
@@ -32,6 +35,28 @@ func (t *TimeTool) GetFunction() func(params string) string {
 		}
 		return string(data)
 	}
+}
+
+func resolveTimeLocation() *time.Location {
+	if loc := loadLocationFromEnv("NAIMA_TASK_TIMEZONE"); loc != nil {
+		return loc
+	}
+	if loc := loadLocationFromEnv("TZ"); loc != nil {
+		return loc
+	}
+	return time.Local
+}
+
+func loadLocationFromEnv(key string) *time.Location {
+	raw := strings.TrimSpace(os.Getenv(key))
+	if raw == "" {
+		return nil
+	}
+	loc, err := time.LoadLocation(raw)
+	if err != nil {
+		return nil
+	}
+	return loc
 }
 
 func (t *TimeTool) IsImmediate() bool {

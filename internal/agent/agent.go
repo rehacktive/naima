@@ -17,6 +17,7 @@ import (
 	openai "github.com/sashabaranov/go-openai"
 	log "github.com/sirupsen/logrus"
 
+	"naima/internal/persona"
 	"naima/internal/pkb"
 	"naima/internal/safeio"
 	"naima/internal/tools"
@@ -36,6 +37,7 @@ type Agent struct {
 	PKB            PKBRetriever
 	Tools          map[string]tools.Tool
 	ToolEnabled    map[string]bool
+	Persona        PersonaUpdater
 	mu             sync.Mutex
 }
 
@@ -63,7 +65,12 @@ type MemoryStatusView struct {
 	RecallMessages  int `json:"recall_messages"`
 }
 
-func New(name string, systemPrompt string, toolPromptDir string, client *openai.Client, model string, embeddingModel string, memory ConversationMemory, pkb PKBRetriever, toolset []tools.Tool) *Agent {
+type PersonaUpdater interface {
+	MarkDirty()
+	BestFact(ctx context.Context, key string) (persona.Fact, bool, error)
+}
+
+func New(name string, systemPrompt string, toolPromptDir string, client *openai.Client, model string, embeddingModel string, memory ConversationMemory, pkb PKBRetriever, persona PersonaUpdater, toolset []tools.Tool) *Agent {
 	toolMap := make(map[string]tools.Tool, len(toolset))
 	for _, tool := range toolset {
 		if tool == nil {
@@ -81,6 +88,7 @@ func New(name string, systemPrompt string, toolPromptDir string, client *openai.
 		EmbeddingModel: embeddingModel,
 		Memory:         memory,
 		PKB:            pkb,
+		Persona:        persona,
 		Tools:          toolMap,
 		ToolEnabled:    enabledMap(toolMap),
 	}
@@ -119,10 +127,12 @@ func (a *Agent) processMessage(ctx context.Context, input string, onDelta func(s
 	toolPromptDir := a.ToolPromptDir
 	memoryStore := a.Memory
 	pkbRetriever := a.PKB
+	personaUpdater := a.Persona
 	activeTools := a.enabledToolsLocked()
 	a.mu.Unlock()
 
 	systemPrompt = composeSystemPrompt(systemPrompt, toolPromptDir, activeTools)
+	systemPrompt = appendPersonaPrompt(ctx, systemPrompt, personaUpdater)
 
 	if client == nil {
 		return "", fmt.Errorf("llm client is not configured")
@@ -263,6 +273,9 @@ func (a *Agent) processMessage(ctx context.Context, input string, onDelta func(s
 					CreatedAt: &now,
 				}, false)
 				a.mu.Unlock()
+				if personaUpdater != nil {
+					personaUpdater.MarkDirty()
+				}
 				log.Infof("[agent] replied via immediate tool name=%s elapsed=%s", call.Function.Name, time.Since(startedAt).Round(time.Millisecond))
 				emitOp(onOp, "reply sent (immediate tool)")
 				return reply, nil
@@ -308,6 +321,9 @@ func (a *Agent) processMessage(ctx context.Context, input string, onDelta func(s
 		CreatedAt: &now,
 	}, false)
 	a.mu.Unlock()
+	if personaUpdater != nil {
+		personaUpdater.MarkDirty()
+	}
 	log.Infof("[agent] assistant message saved; replied chars=%d elapsed=%s", len(answer), time.Since(startedAt).Round(time.Millisecond))
 	emitOp(onOp, "assistant replied")
 
@@ -347,6 +363,26 @@ func composeSystemPrompt(base string, toolPromptDir string, activeTools map[stri
 		return strings.Join(sections, "\n\n")
 	}
 	return base + "\n\n" + strings.Join(sections, "\n\n")
+}
+
+func appendPersonaPrompt(ctx context.Context, base string, persona PersonaUpdater) string {
+	if persona == nil {
+		return base
+	}
+	lookupCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+	defer cancel()
+	fact, ok, err := persona.BestFact(lookupCtx, "name")
+	if err != nil || !ok {
+		return base
+	}
+	name := strings.TrimSpace(fact.Value)
+	if name == "" {
+		return base
+	}
+	if base == "" {
+		return fmt.Sprintf("The user's name is %s. Use their name naturally from time to time when it improves warmth or clarity, but do not force it into every reply.", name)
+	}
+	return base + "\n\n" + fmt.Sprintf("The user's name is %s. Use their name naturally from time to time when it improves warmth or clarity, but do not force it into every reply.", name)
 }
 
 func shouldUsePKBRetrieval(input string) bool {
