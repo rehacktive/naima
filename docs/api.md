@@ -79,6 +79,24 @@ Note:
 
 ## Deep Research
 
+Submit a new research run:
+
+```sh
+curl -sS -X POST "http://localhost:8080/api/research" \
+  -H "Authorization: Bearer $NAIMA_API_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "topic":"AI coding agents",
+    "note":"Research current AI coding agents, their capabilities, pricing, and tradeoffs. Focus on practical developer usage.",
+    "guide_title":"AI coding agents brief",
+    "language":"en",
+    "time_range":"month",
+    "max_sources":6,
+    "max_queries":5,
+    "notify_telegram":true
+  }'
+```
+
 List recent research runs:
 
 ```sh
@@ -94,7 +112,7 @@ curl -sS "http://localhost:8080/api/research/1" \
 ```
 
 Notes:
-- research runs are started through the `deep_research` tool, not through a dedicated REST create endpoint
+- research runs can be started either through the `deep_research` tool or `POST /api/research`
 - these endpoints are for later inspection after the page is closed
 - run logs are persisted in the database and returned by `GET /api/research/:id`
 

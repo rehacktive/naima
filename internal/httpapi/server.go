@@ -54,6 +54,17 @@ type fileUploadRequest struct {
 	Data     []byte
 }
 
+type deepResearchCreateRequest struct {
+	Topic          string `json:"topic"`
+	Note           string `json:"note"`
+	GuideTitle     string `json:"guide_title,omitempty"`
+	Language       string `json:"language,omitempty"`
+	TimeRange      string `json:"time_range,omitempty"`
+	MaxSources     int    `json:"max_sources,omitempty"`
+	MaxQueries     int    `json:"max_queries,omitempty"`
+	NotifyTelegram *bool  `json:"notify_telegram,omitempty"`
+}
+
 type streamEvent struct {
 	Type    string `json:"type"`
 	Content string `json:"content,omitempty"`
@@ -85,6 +96,7 @@ type pkbReader interface {
 }
 
 type researchReader interface {
+	CreateRun(ctx context.Context, req research.CreateRunRequest) (research.Run, error)
 	ListRuns(ctx context.Context, limit int) ([]research.Run, error)
 	GetRun(ctx context.Context, id int64) (research.Run, error)
 }
@@ -217,32 +229,68 @@ func RunServer(ctx context.Context, agentInstance *agent.Agent, pkbStore pkbRead
 			writeError(w, http.StatusUnauthorized, "unauthorized")
 			return
 		}
-		if r.Method != http.MethodGet {
-			writeError(w, http.StatusMethodNotAllowed, "method not allowed")
-			return
-		}
 		if researchStore == nil {
 			writeError(w, http.StatusServiceUnavailable, "research is not configured")
 			return
 		}
-		limit := 20
-		if raw := strings.TrimSpace(r.URL.Query().Get("limit")); raw != "" {
-			n, err := strconv.Atoi(raw)
-			if err != nil || n <= 0 {
-				writeError(w, http.StatusBadRequest, "invalid limit")
+		switch r.Method {
+		case http.MethodGet:
+			limit := 20
+			if raw := strings.TrimSpace(r.URL.Query().Get("limit")); raw != "" {
+				n, err := strconv.Atoi(raw)
+				if err != nil || n <= 0 {
+					writeError(w, http.StatusBadRequest, "invalid limit")
+					return
+				}
+				limit = n
+			}
+			runs, err := researchStore.ListRuns(r.Context(), limit)
+			if err != nil {
+				writeError(w, http.StatusInternalServerError, err.Error())
 				return
 			}
-			limit = n
-		}
-		runs, err := researchStore.ListRuns(r.Context(), limit)
-		if err != nil {
-			writeError(w, http.StatusInternalServerError, err.Error())
+			for i := range runs {
+				runs[i].Logs = ""
+			}
+			writeJSON(w, http.StatusOK, map[string]any{"runs": runs, "count": len(runs)})
+			return
+		case http.MethodPost:
+			r.Body = http.MaxBytesReader(w, r.Body, jsonBodyLimit)
+			var req deepResearchCreateRequest
+			decoder := json.NewDecoder(r.Body)
+			decoder.DisallowUnknownFields()
+			if err := decoder.Decode(&req); err != nil {
+				writeError(w, http.StatusBadRequest, "invalid request body")
+				return
+			}
+			notifyTelegram := true
+			if req.NotifyTelegram != nil {
+				notifyTelegram = *req.NotifyTelegram
+			}
+			run, err := researchStore.CreateRun(r.Context(), research.CreateRunRequest{
+				Topic:          strings.TrimSpace(req.Topic),
+				Note:           strings.TrimSpace(req.Note),
+				GuideTitle:     strings.TrimSpace(req.GuideTitle),
+				Language:       strings.TrimSpace(req.Language),
+				TimeRange:      strings.TrimSpace(req.TimeRange),
+				MaxSources:     req.MaxSources,
+				MaxQueries:     req.MaxQueries,
+				NotifyTelegram: notifyTelegram,
+			})
+			if err != nil {
+				writeError(w, http.StatusBadRequest, err.Error())
+				return
+			}
+			run.Logs = ""
+			writeJSON(w, http.StatusAccepted, map[string]any{
+				"run":     run,
+				"message": "research queued in background; use GET /api/research/:id to check status later",
+			})
+			return
+		default:
+			writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 			return
 		}
-		for i := range runs {
-			runs[i].Logs = ""
-		}
-		writeJSON(w, http.StatusOK, map[string]any{"runs": runs, "count": len(runs)})
 	})
 	mux.HandleFunc("/api/research/", func(w http.ResponseWriter, r *http.Request) {
 		if !authorizeRequest(r, cfg.Token) {
