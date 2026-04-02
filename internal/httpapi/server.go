@@ -47,6 +47,13 @@ type personaNameRequest struct {
 	Name string `json:"name"`
 }
 
+type fileUploadRequest struct {
+	TopicID  int64
+	NewTopic string
+	Filename string
+	Data     []byte
+}
+
 type streamEvent struct {
 	Type    string `json:"type"`
 	Content string `json:"content,omitempty"`
@@ -675,33 +682,23 @@ func RunServer(ctx context.Context, agentInstance *agent.Agent, pkbStore pkbRead
 			return
 		}
 		r.Body = http.MaxBytesReader(w, r.Body, maxPKBUploadBytes)
-		if err := r.ParseMultipartForm(32 << 20); err != nil {
-			writeError(w, http.StatusBadRequest, "invalid multipart form")
+		upload, err := readFileUploadRequest(r, maxPKBUploadBytes)
+		if err != nil {
+			writeError(w, http.StatusBadRequest, err.Error())
 			return
 		}
-		topicID, _ := strconv.ParseInt(strings.TrimSpace(r.FormValue("topic_id")), 10, 64)
-		newTopic := strings.TrimSpace(r.FormValue("new_topic"))
+		topicID := upload.TopicID
+		newTopic := upload.NewTopic
 		if topicID <= 0 && newTopic == "" {
 			writeError(w, http.StatusBadRequest, "topic_id or new_topic is required")
 			return
 		}
-		file, header, err := r.FormFile("file")
-		if err != nil {
-			writeError(w, http.StatusBadRequest, "file is required")
-			return
-		}
-		defer file.Close()
-
-		filename := strings.TrimSpace(header.Filename)
+		filename := strings.TrimSpace(upload.Filename)
 		if filename == "" {
 			writeError(w, http.StatusBadRequest, "file name is required")
 			return
 		}
-		data, err := io.ReadAll(io.LimitReader(file, maxPKBUploadBytes))
-		if err != nil {
-			writeError(w, http.StatusBadRequest, "read file failed")
-			return
-		}
+		data := upload.Data
 		if len(data) == 0 {
 			writeError(w, http.StatusBadRequest, "file is empty")
 			return
@@ -800,6 +797,65 @@ func parsePKBID(path string, prefix string) (int64, error) {
 		return 0, errors.New("invalid resource id")
 	}
 	return id, nil
+}
+
+func readFileUploadRequest(r *http.Request, maxBytes int64) (fileUploadRequest, error) {
+	reader, err := r.MultipartReader()
+	if err != nil {
+		return fileUploadRequest{}, errors.New("invalid multipart form")
+	}
+	var out fileUploadRequest
+	for {
+		part, err := reader.NextPart()
+		if err != nil {
+			if errors.Is(err, io.EOF) {
+				break
+			}
+			return fileUploadRequest{}, errors.New("read multipart form failed")
+		}
+		switch strings.TrimSpace(part.FormName()) {
+		case "topic_id":
+			data, err := io.ReadAll(io.LimitReader(part, 64))
+			_ = part.Close()
+			if err != nil {
+				return fileUploadRequest{}, errors.New("read topic_id failed")
+			}
+			raw := strings.TrimSpace(string(data))
+			if raw == "" {
+				continue
+			}
+			value, err := strconv.ParseInt(raw, 10, 64)
+			if err != nil {
+				return fileUploadRequest{}, errors.New("invalid topic_id")
+			}
+			out.TopicID = value
+		case "new_topic":
+			data, err := io.ReadAll(io.LimitReader(part, 1024))
+			_ = part.Close()
+			if err != nil {
+				return fileUploadRequest{}, errors.New("read new_topic failed")
+			}
+			out.NewTopic = strings.TrimSpace(string(data))
+		case "file":
+			out.Filename = strings.TrimSpace(part.FileName())
+			data, err := io.ReadAll(io.LimitReader(part, maxBytes+1))
+			_ = part.Close()
+			if err != nil {
+				return fileUploadRequest{}, errors.New("read file failed")
+			}
+			if int64(len(data)) > maxBytes {
+				return fileUploadRequest{}, errors.New("file is too large")
+			}
+			out.Data = data
+		default:
+			_, _ = io.Copy(io.Discard, part)
+			_ = part.Close()
+		}
+	}
+	if len(out.Data) == 0 {
+		return fileUploadRequest{}, errors.New("file is required")
+	}
+	return out, nil
 }
 
 type config struct {

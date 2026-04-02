@@ -142,7 +142,7 @@ func (m *Manager) Start(ctx context.Context, memory MemorySource) error {
 				m.pool.Close()
 				return
 			case <-ticker.C:
-				if err := m.extractIfDirty(context.Background()); err != nil {
+				if err := m.extractIfDirty(ctx); err != nil {
 					log.Warnf("[persona] background extraction failed: %v", err)
 				}
 			}

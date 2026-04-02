@@ -578,10 +578,7 @@ func (t *EmailTool) smtpSend(from string, recipients []string, msg []byte) error
 	var conn net.Conn
 	var err error
 	if t.smtp.UseImplicitTLS {
-		conn, err = tls.DialWithDialer(dialer, "tcp", addr, &tls.Config{
-			ServerName:         t.smtp.Host,
-			InsecureSkipVerify: t.smtp.InsecureSkipVerify,
-		})
+		conn, err = tls.DialWithDialer(dialer, "tcp", addr, secureTLSConfig(t.smtp.Host))
 	} else {
 		conn, err = dialer.Dial("tcp", addr)
 	}
@@ -601,10 +598,7 @@ func (t *EmailTool) smtpSend(from string, recipients []string, msg []byte) error
 		if !ok {
 			return fmt.Errorf("smtp server does not support STARTTLS")
 		}
-		if err := client.StartTLS(&tls.Config{
-			ServerName:         t.smtp.Host,
-			InsecureSkipVerify: t.smtp.InsecureSkipVerify,
-		}); err != nil {
+		if err := client.StartTLS(secureTLSConfig(t.smtp.Host)); err != nil {
 			return fmt.Errorf("smtp starttls failed: %w", err)
 		}
 	}
@@ -631,7 +625,7 @@ func (t *EmailTool) smtpSend(from string, recipients []string, msg []byte) error
 		return fmt.Errorf("smtp DATA failed: %w", err)
 	}
 	if _, err := w.Write(msg); err != nil {
-		w.Close()
+		_ = w.Close()
 		return fmt.Errorf("smtp message write failed: %w", err)
 	}
 	if err := w.Close(); err != nil {
@@ -666,10 +660,7 @@ func dialPOP3(cfg emailPOP3Config) (*pop3Client, error) {
 	var conn net.Conn
 	var err error
 	if cfg.UseTLS {
-		conn, err = tls.DialWithDialer(dialer, "tcp", addr, &tls.Config{
-			ServerName:         cfg.Host,
-			InsecureSkipVerify: cfg.InsecureSkipVerify,
-		})
+		conn, err = tls.DialWithDialer(dialer, "tcp", addr, secureTLSConfig(cfg.Host))
 	} else {
 		conn, err = dialer.Dial("tcp", addr)
 	}
@@ -685,14 +676,21 @@ func dialPOP3(cfg emailPOP3Config) (*pop3Client, error) {
 	}
 	line, err := client.reader.ReadLine()
 	if err != nil {
-		conn.Close()
+		_ = conn.Close()
 		return nil, fmt.Errorf("pop3 greeting failed: %w", err)
 	}
 	if !strings.HasPrefix(line, "+OK") {
-		conn.Close()
+		_ = conn.Close()
 		return nil, fmt.Errorf("pop3 greeting error: %s", line)
 	}
 	return client, nil
+}
+
+func secureTLSConfig(serverName string) *tls.Config {
+	return &tls.Config{
+		MinVersion: tls.VersionTLS12,
+		ServerName: serverName,
+	}
 }
 
 func (c *pop3Client) login() error {
