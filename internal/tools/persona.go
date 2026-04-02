@@ -44,62 +44,66 @@ func (t *PersonaTool) GetDescription() string {
 
 func (t *PersonaTool) GetFunction() func(params string) string {
 	return func(params string) string {
-		if t.store == nil {
-			return errorJSON("persona storage is not configured")
-		}
-		var in personaParams
-		if err := jsonUnmarshal(params, &in); err != nil {
-			return errorJSON("invalid params: " + err.Error())
-		}
-		op := strings.ToLower(strings.TrimSpace(in.Operation))
-		if op == "" {
-			op = "list"
-		}
-		ctx, cancel := context.WithTimeout(context.Background(), defaultPersonaToolTimeout)
-		defer cancel()
+		return t.Execute(context.Background(), params)
+	}
+}
 
-		switch op {
-		case "list":
-			facts, err := t.store.ListFacts(ctx)
-			if err != nil {
-				return errorJSON("list persona facts failed: " + err.Error())
-			}
-			return mustJSON(map[string]any{"operation": "list", "count": len(facts), "facts": facts})
-		case "get":
-			if strings.TrimSpace(in.Key) == "" {
-				return errorJSON("key is required")
-			}
-			facts, err := t.store.GetFactsByKey(ctx, in.Key)
-			if err != nil {
-				return errorJSON("get persona facts failed: " + err.Error())
-			}
-			return mustJSON(map[string]any{"operation": "get", "key": strings.TrimSpace(in.Key), "count": len(facts), "facts": facts})
-		case "set", "save":
-			if strings.TrimSpace(in.Key) == "" || strings.TrimSpace(in.Value) == "" {
-				return errorJSON("key and value are required")
-			}
-			fact, err := t.store.SetFact(ctx, persona.Fact{
-				Key:        strings.TrimSpace(in.Key),
-				Value:      strings.TrimSpace(in.Value),
-				Source:     strings.TrimSpace(in.Source),
-				Confidence: in.Confidence,
-				Reason:     strings.TrimSpace(in.Reason),
-			})
-			if err != nil {
-				return errorJSON("set persona fact failed: " + err.Error())
-			}
-			return mustJSON(map[string]any{"operation": "set", "fact": fact})
-		case "delete":
-			if strings.TrimSpace(in.Key) == "" {
-				return errorJSON("key is required")
-			}
-			if err := t.store.DeleteFact(ctx, in.Key, in.Value); err != nil {
-				return errorJSON("delete persona fact failed: " + err.Error())
-			}
-			return mustJSON(map[string]any{"operation": "delete", "key": strings.TrimSpace(in.Key), "value": strings.TrimSpace(in.Value)})
-		default:
-			return errorJSON("unsupported operation: " + op)
+func (t *PersonaTool) Execute(ctx context.Context, params string) string {
+	if t.store == nil {
+		return errorJSON("persona storage is not configured")
+	}
+	var in personaParams
+	if err := jsonUnmarshal(params, &in); err != nil {
+		return errorJSON("invalid params: " + err.Error())
+	}
+	op := strings.ToLower(strings.TrimSpace(in.Operation))
+	if op == "" {
+		op = "list"
+	}
+	ctx, cancel := context.WithTimeout(ctx, defaultPersonaToolTimeout)
+	defer cancel()
+
+	switch op {
+	case "list":
+		facts, err := t.store.ListFacts(ctx)
+		if err != nil {
+			return errorJSON("list persona facts failed: " + err.Error())
 		}
+		return mustJSON(map[string]any{"operation": "list", "count": len(facts), "facts": facts})
+	case "get":
+		if strings.TrimSpace(in.Key) == "" {
+			return errorJSON("key is required")
+		}
+		facts, err := t.store.GetFactsByKey(ctx, in.Key)
+		if err != nil {
+			return errorJSON("get persona facts failed: " + err.Error())
+		}
+		return mustJSON(map[string]any{"operation": "get", "key": strings.TrimSpace(in.Key), "count": len(facts), "facts": facts})
+	case "set", "save":
+		if strings.TrimSpace(in.Key) == "" || strings.TrimSpace(in.Value) == "" {
+			return errorJSON("key and value are required")
+		}
+		fact, err := t.store.SetFact(ctx, persona.Fact{
+			Key:        strings.TrimSpace(in.Key),
+			Value:      strings.TrimSpace(in.Value),
+			Source:     strings.TrimSpace(in.Source),
+			Confidence: in.Confidence,
+			Reason:     strings.TrimSpace(in.Reason),
+		})
+		if err != nil {
+			return errorJSON("set persona fact failed: " + err.Error())
+		}
+		return mustJSON(map[string]any{"operation": "set", "fact": fact})
+	case "delete":
+		if strings.TrimSpace(in.Key) == "" {
+			return errorJSON("key is required")
+		}
+		if err := t.store.DeleteFact(ctx, in.Key, in.Value); err != nil {
+			return errorJSON("delete persona fact failed: " + err.Error())
+		}
+		return mustJSON(map[string]any{"operation": "delete", "key": strings.TrimSpace(in.Key), "value": strings.TrimSpace(in.Value)})
+	default:
+		return errorJSON("unsupported operation: " + op)
 	}
 }
 

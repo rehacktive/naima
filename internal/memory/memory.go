@@ -27,19 +27,21 @@ func (m *Manager) Reset() {
 	m.sequentialMemory = make([]Message, 0)
 }
 
-func (m *Manager) AddMessage(message Message) {
+func (m *Manager) AddMessage(message Message) error {
 	if message.Embeddings != nil && len(*message.Embeddings) > 0 {
 		m.pendingRecall = append([]float32(nil), (*message.Embeddings)...)
 	}
 	if message.Cost <= 0 {
 		message.Cost = estimateTokens(message.Content)
 	}
+	var storeErr error
 	if err := m.storage.StoreMessage(message); err != nil {
-		panic(err)
+		storeErr = err
 	}
 	message.Embeddings = nil
 	m.sequentialMemory = append(m.sequentialMemory, message)
 	m.refresh()
+	return storeErr
 }
 
 func (m *Manager) GetMessages() []Message {

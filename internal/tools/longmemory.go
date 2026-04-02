@@ -43,55 +43,59 @@ func (t *LongMemoryTool) GetDescription() string {
 
 func (t *LongMemoryTool) GetFunction() func(params string) string {
 	return func(params string) string {
-		var in longMemoryParams
-		if err := json.Unmarshal([]byte(params), &in); err != nil {
-			return errorJSON("invalid params: " + err.Error())
-		}
-
-		topic := strings.TrimSpace(in.Something)
-		if topic == "" {
-			return errorJSON("something is required")
-		}
-		if t.client == nil || t.chatModel == "" || t.embeddingModel == "" || t.storage == nil {
-			return errorJSON("long memory is not configured")
-		}
-
-		ctx, cancel := context.WithTimeout(context.Background(), 12*time.Second)
-		defer cancel()
-
-		embResp, err := t.client.CreateEmbeddings(ctx, openai.EmbeddingRequest{
-			Input: []string{topic},
-			Model: openai.EmbeddingModel(t.embeddingModel),
-		})
-		if err != nil {
-			return errorJSON("embedding request failed: " + err.Error())
-		}
-		if len(embResp.Data) == 0 {
-			return errorJSON("embedding response returned no vectors")
-		}
-
-		queryEmb := append([]float32(nil), embResp.Data[0].Embedding...)
-		matches, err := t.storage.SearchRelatedMessages(queryEmb)
-		if err != nil {
-			return errorJSON("memory search failed: " + err.Error())
-		}
-
-		summary, err := t.summarizeWithLLM(ctx, topic, matches, defaultLongMemoryMatches)
-		if err != nil {
-			summary = summarizeMemoryFallback(matches, defaultLongMemoryMatches)
-		}
-		payload := map[string]any{
-			"something": topic,
-			"matches":   min(len(matches), defaultLongMemoryMatches),
-			"summary":   summary,
-		}
-		out, err := json.Marshal(payload)
-		if err != nil {
-			return errorJSON("serialize long memory result failed: " + err.Error())
-		}
-
-		return string(out)
+		return t.Execute(context.Background(), params)
 	}
+}
+
+func (t *LongMemoryTool) Execute(ctx context.Context, params string) string {
+	var in longMemoryParams
+	if err := json.Unmarshal([]byte(params), &in); err != nil {
+		return errorJSON("invalid params: " + err.Error())
+	}
+
+	topic := strings.TrimSpace(in.Something)
+	if topic == "" {
+		return errorJSON("something is required")
+	}
+	if t.client == nil || t.chatModel == "" || t.embeddingModel == "" || t.storage == nil {
+		return errorJSON("long memory is not configured")
+	}
+
+	ctx, cancel := context.WithTimeout(ctx, 12*time.Second)
+	defer cancel()
+
+	embResp, err := t.client.CreateEmbeddings(ctx, openai.EmbeddingRequest{
+		Input: []string{topic},
+		Model: openai.EmbeddingModel(t.embeddingModel),
+	})
+	if err != nil {
+		return errorJSON("embedding request failed: " + err.Error())
+	}
+	if len(embResp.Data) == 0 {
+		return errorJSON("embedding response returned no vectors")
+	}
+
+	queryEmb := append([]float32(nil), embResp.Data[0].Embedding...)
+	matches, err := t.storage.SearchRelatedMessages(queryEmb)
+	if err != nil {
+		return errorJSON("memory search failed: " + err.Error())
+	}
+
+	summary, err := t.summarizeWithLLM(ctx, topic, matches, defaultLongMemoryMatches)
+	if err != nil {
+		summary = summarizeMemoryFallback(matches, defaultLongMemoryMatches)
+	}
+	payload := map[string]any{
+		"something": topic,
+		"matches":   min(len(matches), defaultLongMemoryMatches),
+		"summary":   summary,
+	}
+	out, err := json.Marshal(payload)
+	if err != nil {
+		return errorJSON("serialize long memory result failed: " + err.Error())
+	}
+
+	return string(out)
 }
 
 func (t *LongMemoryTool) IsImmediate() bool {

@@ -41,7 +41,7 @@ type Agent struct {
 }
 
 type ConversationMemory interface {
-	AddMessage(message memory.Message)
+	AddMessage(message memory.Message) error
 	GetMessages() []memory.Message
 	GetStatus() memory.Status
 	Reset()
@@ -187,13 +187,16 @@ func (a *Agent) processMessage(ctx context.Context, input string, onDelta func(s
 
 	now := time.Now().UTC()
 	a.mu.Lock()
-	memoryStore.AddMessage(memory.Message{
+	if err := memoryStore.AddMessage(memory.Message{
 		Role:       openai.ChatMessageRoleUser,
 		Content:    normalizedInput,
 		Cost:       memory.EstimateTokens(normalizedInput),
 		Embeddings: &emb,
 		CreatedAt:  &now,
-	})
+	}); err != nil {
+		log.Warnf("[agent] user message persistence failed: %v", err)
+		emitOp(onOp, "warning: user message persistence failed")
+	}
 	memoryMessages := memoryStore.GetMessages()
 	a.mu.Unlock()
 	log.Infof("[agent] user message saved to memory")
@@ -253,7 +256,12 @@ func (a *Agent) processMessage(ctx context.Context, input string, onDelta func(s
 			}
 			log.Infof("[agent] executing tool name=%s immediate=%t", call.Function.Name, immediate)
 			emitOp(onOp, fmt.Sprintf("executing tool: %s", call.Function.Name))
-			out := tool.GetFunction()(call.Function.Arguments)
+			var out string
+			if ctxTool, ok := tool.(tools.ContextToolProvider); ok {
+				out = ctxTool.Execute(ctx, call.Function.Arguments)
+			} else {
+				out = tool.GetFunction()(call.Function.Arguments)
+			}
 			log.Infof("[agent] tool output name=%s chars=%d preview=%s", call.Function.Name, len(out), truncateForLog(out, maxToolLogChars))
 			emitOp(onOp, fmt.Sprintf("tool output: %s (%d chars)", call.Function.Name, len(out)))
 			if toolErr, ok := extractToolError(out); ok {
@@ -267,12 +275,15 @@ func (a *Agent) processMessage(ctx context.Context, input string, onDelta func(s
 				}
 				now = time.Now().UTC()
 				a.mu.Lock()
-				memoryStore.AddMessage(memory.Message{
+				if err := memoryStore.AddMessage(memory.Message{
 					Role:      openai.ChatMessageRoleAssistant,
 					Content:   reply,
 					Cost:      memory.EstimateTokens(reply),
 					CreatedAt: &now,
-				})
+				}); err != nil {
+					log.Warnf("[agent] assistant message persistence failed: %v", err)
+					emitOp(onOp, "warning: assistant message persistence failed")
+				}
 				a.mu.Unlock()
 				if personaUpdater != nil {
 					personaUpdater.MarkDirty()
@@ -316,12 +327,15 @@ func (a *Agent) processMessage(ctx context.Context, input string, onDelta func(s
 	}
 	now = time.Now().UTC()
 	a.mu.Lock()
-	memoryStore.AddMessage(memory.Message{
+	if err := memoryStore.AddMessage(memory.Message{
 		Role:      openai.ChatMessageRoleAssistant,
 		Content:   answer,
 		Cost:      memory.EstimateTokens(answer),
 		CreatedAt: &now,
-	})
+	}); err != nil {
+		log.Warnf("[agent] assistant message persistence failed: %v", err)
+		emitOp(onOp, "warning: assistant message persistence failed")
+	}
 	a.mu.Unlock()
 	if personaUpdater != nil {
 		personaUpdater.MarkDirty()

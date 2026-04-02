@@ -52,62 +52,66 @@ func (t *PKBRetrieveTool) GetDescription() string {
 
 func (t *PKBRetrieveTool) GetFunction() func(params string) string {
 	return func(params string) string {
-		var in pkbRetrieveParams
-		if err := jsonUnmarshal(params, &in); err != nil {
-			return errorJSON("invalid params: " + err.Error())
-		}
-
-		query := strings.TrimSpace(in.Query)
-		if query == "" {
-			return errorJSON("query is required")
-		}
-		if t.client == nil || t.embeddingModel == "" || t.searcher == nil {
-			return errorJSON("pkb retrieval is not configured")
-		}
-
-		docLimit := in.DocumentLimit
-		if docLimit <= 0 {
-			docLimit = defaultPKBRetrieveDocLimit
-		}
-		if docLimit > maxPKBRetrieveDocLimit {
-			docLimit = maxPKBRetrieveDocLimit
-		}
-
-		chunkLimit := in.ChunksPerDocument
-		if chunkLimit <= 0 {
-			chunkLimit = defaultPKBRetrieveChunkLimit
-		}
-		if chunkLimit > maxPKBRetrieveChunkLimit {
-			chunkLimit = maxPKBRetrieveChunkLimit
-		}
-
-		ctx, cancel := context.WithTimeout(context.Background(), defaultPKBRetrieveTimeout)
-		defer cancel()
-
-		embResp, err := t.client.CreateEmbeddings(ctx, openai.EmbeddingRequest{
-			Input: []string{query},
-			Model: openai.EmbeddingModel(t.embeddingModel),
-		})
-		if err != nil {
-			return errorJSON("embedding request failed: " + err.Error())
-		}
-		if len(embResp.Data) == 0 {
-			return errorJSON("embedding response returned no vectors")
-		}
-
-		docs, err := t.searcher.SearchRelevantDocuments(ctx, append([]float32(nil), embResp.Data[0].Embedding...), docLimit, chunkLimit)
-		if err != nil {
-			return errorJSON("pkb search failed: " + err.Error())
-		}
-
-		return mustJSON(map[string]any{
-			"query":               query,
-			"document_limit":      docLimit,
-			"chunks_per_document": chunkLimit,
-			"count":               len(docs),
-			"documents":           docs,
-		})
+		return t.Execute(context.Background(), params)
 	}
+}
+
+func (t *PKBRetrieveTool) Execute(ctx context.Context, params string) string {
+	var in pkbRetrieveParams
+	if err := jsonUnmarshal(params, &in); err != nil {
+		return errorJSON("invalid params: " + err.Error())
+	}
+
+	query := strings.TrimSpace(in.Query)
+	if query == "" {
+		return errorJSON("query is required")
+	}
+	if t.client == nil || t.embeddingModel == "" || t.searcher == nil {
+		return errorJSON("pkb retrieval is not configured")
+	}
+
+	docLimit := in.DocumentLimit
+	if docLimit <= 0 {
+		docLimit = defaultPKBRetrieveDocLimit
+	}
+	if docLimit > maxPKBRetrieveDocLimit {
+		docLimit = maxPKBRetrieveDocLimit
+	}
+
+	chunkLimit := in.ChunksPerDocument
+	if chunkLimit <= 0 {
+		chunkLimit = defaultPKBRetrieveChunkLimit
+	}
+	if chunkLimit > maxPKBRetrieveChunkLimit {
+		chunkLimit = maxPKBRetrieveChunkLimit
+	}
+
+	ctx, cancel := context.WithTimeout(ctx, defaultPKBRetrieveTimeout)
+	defer cancel()
+
+	embResp, err := t.client.CreateEmbeddings(ctx, openai.EmbeddingRequest{
+		Input: []string{query},
+		Model: openai.EmbeddingModel(t.embeddingModel),
+	})
+	if err != nil {
+		return errorJSON("embedding request failed: " + err.Error())
+	}
+	if len(embResp.Data) == 0 {
+		return errorJSON("embedding response returned no vectors")
+	}
+
+	docs, err := t.searcher.SearchRelevantDocuments(ctx, append([]float32(nil), embResp.Data[0].Embedding...), docLimit, chunkLimit)
+	if err != nil {
+		return errorJSON("pkb search failed: " + err.Error())
+	}
+
+	return mustJSON(map[string]any{
+		"query":               query,
+		"document_limit":      docLimit,
+		"chunks_per_document": chunkLimit,
+		"count":               len(docs),
+		"documents":           docs,
+	})
 }
 
 func (t *PKBRetrieveTool) IsImmediate() bool {

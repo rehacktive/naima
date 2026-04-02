@@ -1,5 +1,7 @@
 package tools
 
+import "context"
+
 type Tool interface {
 	GetName() string
 	GetDescription() string
@@ -14,6 +16,10 @@ type MaxToolRoundsProvider interface {
 
 type ImmediateToolProvider interface {
 	IsImmediateForParams(params string) bool
+}
+
+type ContextToolProvider interface {
+	Execute(ctx context.Context, params string) string
 }
 
 type Parameters struct {

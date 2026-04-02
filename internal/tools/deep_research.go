@@ -53,34 +53,38 @@ func (t *DeepResearchTool) GetDescription() string {
 
 func (t *DeepResearchTool) GetFunction() func(params string) string {
 	return func(params string) string {
-		if t.manager == nil {
-			return errorJSON("deep research manager is not configured")
-		}
-		var in deepResearchParams
-		if err := jsonUnmarshal(params, &in); err != nil {
-			return errorJSON("invalid params: " + err.Error())
-		}
-		op := strings.ToLower(strings.TrimSpace(in.Operation))
-		if op == "" {
-			op = "create"
-		}
-		ctx, cancel := context.WithTimeout(context.Background(), defaultDeepResearchToolTimeout)
-		defer cancel()
+		return t.Execute(context.Background(), params)
+	}
+}
 
-		switch op {
-		case "create", "start":
-			return t.create(ctx, in)
-		case "get", "status":
-			return t.get(ctx, in)
-		case "list":
-			return t.list(ctx, in)
-		case "cancel", "stop":
-			return t.cancel(ctx, in)
-		case "delete":
-			return t.delete(ctx, in)
-		default:
-			return errorJSON("unsupported operation: " + op)
-		}
+func (t *DeepResearchTool) Execute(ctx context.Context, params string) string {
+	if t.manager == nil {
+		return errorJSON("deep research manager is not configured")
+	}
+	var in deepResearchParams
+	if err := jsonUnmarshal(params, &in); err != nil {
+		return errorJSON("invalid params: " + err.Error())
+	}
+	op := strings.ToLower(strings.TrimSpace(in.Operation))
+	if op == "" {
+		op = "create"
+	}
+	ctx, cancel := context.WithTimeout(ctx, defaultDeepResearchToolTimeout)
+	defer cancel()
+
+	switch op {
+	case "create", "start":
+		return t.create(ctx, in)
+	case "get", "status":
+		return t.get(ctx, in)
+	case "list":
+		return t.list(ctx, in)
+	case "cancel", "stop":
+		return t.cancel(ctx, in)
+	case "delete":
+		return t.delete(ctx, in)
+	default:
+		return errorJSON("unsupported operation: " + op)
 	}
 }
 

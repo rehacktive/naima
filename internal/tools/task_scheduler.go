@@ -72,33 +72,37 @@ func (t *TaskSchedulerTool) GetDescription() string {
 
 func (t *TaskSchedulerTool) GetFunction() func(params string) string {
 	return func(params string) string {
-		if t.scheduler == nil {
-			return errorJSON("task scheduler is not configured")
-		}
+		return t.Execute(context.Background(), params)
+	}
+}
 
-		var in taskSchedulerParams
-		if err := json.Unmarshal([]byte(params), &in); err != nil {
-			return errorJSON("invalid params: " + err.Error())
-		}
+func (t *TaskSchedulerTool) Execute(ctx context.Context, params string) string {
+	if t.scheduler == nil {
+		return errorJSON("task scheduler is not configured")
+	}
 
-		op := strings.ToLower(strings.TrimSpace(in.Operation))
-		if op == "" {
-			op = "create"
-		}
+	var in taskSchedulerParams
+	if err := json.Unmarshal([]byte(params), &in); err != nil {
+		return errorJSON("invalid params: " + err.Error())
+	}
 
-		ctx, cancel := context.WithTimeout(context.Background(), defaultTaskToolTimeout)
-		defer cancel()
+	op := strings.ToLower(strings.TrimSpace(in.Operation))
+	if op == "" {
+		op = "create"
+	}
 
-		switch op {
-		case "create":
-			return t.createTask(ctx, in)
-		case "list":
-			return t.listTasks(ctx)
-		case "cancel", "delete", "disable":
-			return t.cancelTask(ctx, in)
-		default:
-			return errorJSON("unsupported operation: " + op)
-		}
+	ctx, cancel := context.WithTimeout(ctx, defaultTaskToolTimeout)
+	defer cancel()
+
+	switch op {
+	case "create":
+		return t.createTask(ctx, in)
+	case "list":
+		return t.listTasks(ctx)
+	case "cancel", "delete", "disable":
+		return t.cancelTask(ctx, in)
+	default:
+		return errorJSON("unsupported operation: " + op)
 	}
 }
 

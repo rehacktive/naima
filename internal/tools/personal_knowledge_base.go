@@ -69,199 +69,203 @@ func (t *PersonalKnowledgeBaseTool) GetDescription() string {
 
 func (t *PersonalKnowledgeBaseTool) GetFunction() func(params string) string {
 	return func(params string) string {
-		if t.store == nil {
-			return errorJSON("personal knowledge base storage is not configured")
+		return t.Execute(context.Background(), params)
+	}
+}
+
+func (t *PersonalKnowledgeBaseTool) Execute(ctx context.Context, params string) string {
+	if t.store == nil {
+		return errorJSON("personal knowledge base storage is not configured")
+	}
+
+	var in pkbParams
+	if err := jsonUnmarshal(params, &in); err != nil {
+		return errorJSON("invalid params: " + err.Error())
+	}
+
+	op := strings.ToLower(strings.TrimSpace(in.Operation))
+	if op == "" {
+		return errorJSON("operation is required")
+	}
+
+	ctx, cancel := context.WithTimeout(ctx, defaultPKBToolTimeout)
+	defer cancel()
+
+	switch op {
+	case "create_topic":
+		title := strings.TrimSpace(in.Topic)
+		if title == "" {
+			title = strings.TrimSpace(in.Title)
 		}
-
-		var in pkbParams
-		if err := jsonUnmarshal(params, &in); err != nil {
-			return errorJSON("invalid params: " + err.Error())
+		if title == "" {
+			return errorJSON("topic is required")
 		}
-
-		op := strings.ToLower(strings.TrimSpace(in.Operation))
-		if op == "" {
-			return errorJSON("operation is required")
+		topic, err := t.store.CreateTopic(ctx, title)
+		if err != nil {
+			return errorJSON(err.Error())
 		}
+		return mustJSON(map[string]any{"operation": op, "topic": topic})
+	case "list_topics":
+		topics, err := t.store.ListTopics(ctx)
+		if err != nil {
+			return errorJSON(err.Error())
+		}
+		return mustJSON(map[string]any{"operation": op, "count": len(topics), "topics": topics})
+	case "update_topic":
+		if in.TopicID <= 0 {
+			return errorJSON("topic_id is required")
+		}
+		title := strings.TrimSpace(in.Topic)
+		if title == "" {
+			title = strings.TrimSpace(in.Title)
+		}
+		if title == "" {
+			return errorJSON("topic is required")
+		}
+		topic, err := t.store.UpdateTopic(ctx, in.TopicID, title)
+		if err != nil {
+			return errorJSON(err.Error())
+		}
+		return mustJSON(map[string]any{"operation": op, "topic": topic})
+	case "delete_topic":
+		if in.TopicID <= 0 {
+			return errorJSON("topic_id is required")
+		}
+		if err := t.store.DeleteTopic(ctx, in.TopicID); err != nil {
+			return errorJSON(err.Error())
+		}
+		return mustJSON(map[string]any{"operation": op, "deleted_topic_id": in.TopicID})
+	case "add_content":
+		if in.TopicID <= 0 {
+			return errorJSON("topic_id is required")
+		}
+		trimmedURL := strings.TrimSpace(in.URL)
+		note := strings.TrimSpace(in.Note)
+		content := strings.TrimSpace(in.Content)
+		title := strings.TrimSpace(in.Title)
 
-		ctx, cancel := context.WithTimeout(context.Background(), defaultPKBToolTimeout)
-		defer cancel()
-
-		switch op {
-		case "create_topic":
-			title := strings.TrimSpace(in.Topic)
-			if title == "" {
-				title = strings.TrimSpace(in.Title)
-			}
-			if title == "" {
-				return errorJSON("topic is required")
-			}
-			topic, err := t.store.CreateTopic(ctx, title)
+		kind := "note"
+		sourceURL := ""
+		ingestMethod := ""
+		if trimmedURL != "" {
+			kind = "url"
+			sourceURL = trimmedURL
+			ingested, err := pkb.IngestURLContent(ctx, t.client, t.ingestCfg, trimmedURL)
 			if err != nil {
 				return errorJSON(err.Error())
 			}
-			return mustJSON(map[string]any{"operation": op, "topic": topic})
-		case "list_topics":
-			topics, err := t.store.ListTopics(ctx)
-			if err != nil {
-				return errorJSON(err.Error())
-			}
-			return mustJSON(map[string]any{"operation": op, "count": len(topics), "topics": topics})
-		case "update_topic":
-			if in.TopicID <= 0 {
-				return errorJSON("topic_id is required")
-			}
-			title := strings.TrimSpace(in.Topic)
-			if title == "" {
-				title = strings.TrimSpace(in.Title)
+			if ingested.FallbackNote != "" {
+				log.Warnf("[pkb] tika failed for tool url=%s fallback=%s", trimmedURL, ingested.FallbackNote)
 			}
 			if title == "" {
-				return errorJSON("topic is required")
-			}
-			topic, err := t.store.UpdateTopic(ctx, in.TopicID, title)
-			if err != nil {
-				return errorJSON(err.Error())
-			}
-			return mustJSON(map[string]any{"operation": op, "topic": topic})
-		case "delete_topic":
-			if in.TopicID <= 0 {
-				return errorJSON("topic_id is required")
-			}
-			if err := t.store.DeleteTopic(ctx, in.TopicID); err != nil {
-				return errorJSON(err.Error())
-			}
-			return mustJSON(map[string]any{"operation": op, "deleted_topic_id": in.TopicID})
-		case "add_content":
-			if in.TopicID <= 0 {
-				return errorJSON("topic_id is required")
-			}
-			trimmedURL := strings.TrimSpace(in.URL)
-			note := strings.TrimSpace(in.Note)
-			content := strings.TrimSpace(in.Content)
-			title := strings.TrimSpace(in.Title)
-
-			kind := "note"
-			sourceURL := ""
-			ingestMethod := ""
-			if trimmedURL != "" {
-				kind = "url"
-				sourceURL = trimmedURL
-				ingested, err := pkb.IngestURLContent(ctx, t.client, t.ingestCfg, trimmedURL)
-				if err != nil {
-					return errorJSON(err.Error())
-				}
-				if ingested.FallbackNote != "" {
-					log.Warnf("[pkb] tika failed for tool url=%s fallback=%s", trimmedURL, ingested.FallbackNote)
-				}
-				if title == "" {
-					title = ingested.Title
-				}
-				if content == "" {
-					content = ingested.Content
-				}
-				ingestMethod = ingested.Method
-			}
-			if note != "" {
-				if content != "" {
-					content += "\n\n" + note
-				} else {
-					content = note
-				}
-				if kind == "note" {
-					ingestMethod = "manual_note"
-				} else if ingestMethod != "" {
-					ingestMethod += "+note"
-				}
-			}
-			content = strings.TrimSpace(content)
-			if content == "" {
-				return errorJSON("note or url is required")
-			}
-			content = pkb.TruncateRunes(content, maxStoredContentRunes)
-			if title == "" {
-				if kind == "url" {
-					title = sourceURL
-				} else {
-					title = "Note " + time.Now().UTC().Format("2006-01-02 15:04")
-				}
-			}
-
-			doc, err := t.store.CreateDocument(ctx, pkb.CreateDocumentRequest{
-				TopicID:      in.TopicID,
-				Kind:         kind,
-				Title:        title,
-				SourceURL:    sourceURL,
-				IngestMethod: strings.TrimSpace(ingestMethod),
-				Content:      content,
-			})
-			if err != nil {
-				return errorJSON(err.Error())
-			}
-			return mustJSON(map[string]any{"operation": op, "document": doc})
-		case "list_documents":
-			if in.TopicID <= 0 {
-				return errorJSON("topic_id is required")
-			}
-			docs, err := t.store.ListDocuments(ctx, in.TopicID)
-			if err != nil {
-				return errorJSON(err.Error())
-			}
-			return mustJSON(map[string]any{"operation": op, "topic_id": in.TopicID, "count": len(docs), "documents": docs})
-		case "temporal_search":
-			since, until, label, err := resolveTemporalRange(in.Timeframe, in.Since, in.Until, time.Now().UTC())
-			if err != nil {
-				return errorJSON(err.Error())
-			}
-			docs, err := t.store.ListDocumentsByTimeRange(ctx, pkb.ListDocumentsRangeRequest{
-				TopicID: in.TopicID,
-				Since:   since,
-				Until:   until,
-			})
-			if err != nil {
-				return errorJSON(err.Error())
-			}
-			structured := buildTemporalStructuredDocument(label, in.TopicID, docs, since, until)
-			return mustJSON(map[string]any{
-				"operation":           op,
-				"timeframe":           label,
-				"topic_id":            in.TopicID,
-				"since":               since.Format(time.RFC3339),
-				"until":               until.Format(time.RFC3339),
-				"count":               len(docs),
-				"documents":           docs,
-				"structured_document": structured,
-			})
-		case "update_document":
-			if in.DocumentID <= 0 {
-				return errorJSON("document_id is required")
-			}
-			content := strings.TrimSpace(in.Content)
-			if content == "" {
-				content = strings.TrimSpace(in.Note)
+				title = ingested.Title
 			}
 			if content == "" {
-				return errorJSON("content is required")
+				content = ingested.Content
 			}
-			doc, err := t.store.UpdateDocument(ctx, pkb.UpdateDocumentRequest{
-				DocumentID: in.DocumentID,
-				Title:      strings.TrimSpace(in.Title),
-				SourceURL:  strings.TrimSpace(in.URL),
-				Content:    pkb.TruncateRunes(content, maxStoredContentRunes),
-			})
-			if err != nil {
-				return errorJSON(err.Error())
-			}
-			return mustJSON(map[string]any{"operation": op, "document": doc})
-		case "delete_document":
-			if in.DocumentID <= 0 {
-				return errorJSON("document_id is required")
-			}
-			if err := t.store.DeleteDocument(ctx, in.DocumentID); err != nil {
-				return errorJSON(err.Error())
-			}
-			return mustJSON(map[string]any{"operation": op, "deleted_document_id": in.DocumentID})
-		default:
-			return errorJSON("unsupported operation: " + op)
+			ingestMethod = ingested.Method
 		}
+		if note != "" {
+			if content != "" {
+				content += "\n\n" + note
+			} else {
+				content = note
+			}
+			if kind == "note" {
+				ingestMethod = "manual_note"
+			} else if ingestMethod != "" {
+				ingestMethod += "+note"
+			}
+		}
+		content = strings.TrimSpace(content)
+		if content == "" {
+			return errorJSON("note or url is required")
+		}
+		content = pkb.TruncateRunes(content, maxStoredContentRunes)
+		if title == "" {
+			if kind == "url" {
+				title = sourceURL
+			} else {
+				title = "Note " + time.Now().UTC().Format("2006-01-02 15:04")
+			}
+		}
+
+		doc, err := t.store.CreateDocument(ctx, pkb.CreateDocumentRequest{
+			TopicID:      in.TopicID,
+			Kind:         kind,
+			Title:        title,
+			SourceURL:    sourceURL,
+			IngestMethod: strings.TrimSpace(ingestMethod),
+			Content:      content,
+		})
+		if err != nil {
+			return errorJSON(err.Error())
+		}
+		return mustJSON(map[string]any{"operation": op, "document": doc})
+	case "list_documents":
+		if in.TopicID <= 0 {
+			return errorJSON("topic_id is required")
+		}
+		docs, err := t.store.ListDocuments(ctx, in.TopicID)
+		if err != nil {
+			return errorJSON(err.Error())
+		}
+		return mustJSON(map[string]any{"operation": op, "topic_id": in.TopicID, "count": len(docs), "documents": docs})
+	case "temporal_search":
+		since, until, label, err := resolveTemporalRange(in.Timeframe, in.Since, in.Until, time.Now().UTC())
+		if err != nil {
+			return errorJSON(err.Error())
+		}
+		docs, err := t.store.ListDocumentsByTimeRange(ctx, pkb.ListDocumentsRangeRequest{
+			TopicID: in.TopicID,
+			Since:   since,
+			Until:   until,
+		})
+		if err != nil {
+			return errorJSON(err.Error())
+		}
+		structured := buildTemporalStructuredDocument(label, in.TopicID, docs, since, until)
+		return mustJSON(map[string]any{
+			"operation":           op,
+			"timeframe":           label,
+			"topic_id":            in.TopicID,
+			"since":               since.Format(time.RFC3339),
+			"until":               until.Format(time.RFC3339),
+			"count":               len(docs),
+			"documents":           docs,
+			"structured_document": structured,
+		})
+	case "update_document":
+		if in.DocumentID <= 0 {
+			return errorJSON("document_id is required")
+		}
+		content := strings.TrimSpace(in.Content)
+		if content == "" {
+			content = strings.TrimSpace(in.Note)
+		}
+		if content == "" {
+			return errorJSON("content is required")
+		}
+		doc, err := t.store.UpdateDocument(ctx, pkb.UpdateDocumentRequest{
+			DocumentID: in.DocumentID,
+			Title:      strings.TrimSpace(in.Title),
+			SourceURL:  strings.TrimSpace(in.URL),
+			Content:    pkb.TruncateRunes(content, maxStoredContentRunes),
+		})
+		if err != nil {
+			return errorJSON(err.Error())
+		}
+		return mustJSON(map[string]any{"operation": op, "document": doc})
+	case "delete_document":
+		if in.DocumentID <= 0 {
+			return errorJSON("document_id is required")
+		}
+		if err := t.store.DeleteDocument(ctx, in.DocumentID); err != nil {
+			return errorJSON(err.Error())
+		}
+		return mustJSON(map[string]any{"operation": op, "deleted_document_id": in.DocumentID})
+	default:
+		return errorJSON("unsupported operation: " + op)
 	}
 }
 

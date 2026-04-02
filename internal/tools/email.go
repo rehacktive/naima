@@ -169,25 +169,29 @@ func (t *EmailTool) GetDescription() string {
 
 func (t *EmailTool) GetFunction() func(params string) string {
 	return func(params string) string {
-		var in emailParams
-		if err := jsonUnmarshal(params, &in); err != nil {
-			return errorJSON("invalid params: " + err.Error())
-		}
+		return t.Execute(context.Background(), params)
+	}
+}
 
-		switch strings.ToLower(strings.TrimSpace(in.Operation)) {
-		case "list":
-			return t.listMessages(in)
-		case "get", "read":
-			return t.getMessage(in)
-		case "wait":
-			return t.waitForMessage(in)
-		case "delete":
-			return t.deleteMessage(in)
-		case "send":
-			return t.sendMessage(in)
-		default:
-			return errorJSON("unsupported operation: " + strings.TrimSpace(in.Operation))
-		}
+func (t *EmailTool) Execute(ctx context.Context, params string) string {
+	var in emailParams
+	if err := jsonUnmarshal(params, &in); err != nil {
+		return errorJSON("invalid params: " + err.Error())
+	}
+
+	switch strings.ToLower(strings.TrimSpace(in.Operation)) {
+	case "list":
+		return t.listMessages(in)
+	case "get", "read":
+		return t.getMessage(in)
+	case "wait":
+		return t.waitForMessage(in)
+	case "delete":
+		return t.deleteMessage(in)
+	case "send":
+		return t.sendMessage(ctx, in)
+	default:
+		return errorJSON("unsupported operation: " + strings.TrimSpace(in.Operation))
 	}
 }
 
@@ -454,7 +458,7 @@ func (t *EmailTool) deleteMessage(in emailParams) string {
 	})
 }
 
-func (t *EmailTool) sendMessage(in emailParams) string {
+func (t *EmailTool) sendMessage(parentCtx context.Context, in emailParams) string {
 	if err := t.requireSMTP(); err != nil {
 		return errorJSON(err.Error())
 	}
@@ -462,7 +466,7 @@ func (t *EmailTool) sendMessage(in emailParams) string {
 	cc := cleanEmailAddrs(in.Cc)
 	bcc := cleanEmailAddrs(in.Bcc)
 	if len(to)+len(cc)+len(bcc) == 0 && t.persona != nil {
-		ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+		ctx, cancel := context.WithTimeout(parentCtx, 3*time.Second)
 		defer cancel()
 		if fact, ok, err := t.persona.BestFact(ctx, "email"); err == nil && ok && strings.TrimSpace(fact.Value) != "" {
 			to = []string{strings.TrimSpace(fact.Value)}
