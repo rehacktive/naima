@@ -516,18 +516,15 @@ func truncateForContext(value string, maxChars int) string {
 
 func (a *Agent) runModel(ctx context.Context, client *openai.Client, req openai.ChatCompletionRequest, onDelta func(string)) (openai.ChatCompletionMessage, error) {
 	if onDelta == nil {
-		response, err := client.CreateChatCompletion(ctx, req)
-		if err != nil {
-			return openai.ChatCompletionMessage{}, err
-		}
-		if len(response.Choices) == 0 {
-			return openai.ChatCompletionMessage{}, fmt.Errorf("llm returned no choices")
-		}
-		return response.Choices[0].Message, nil
+		return runModelNonStreaming(ctx, client, req)
 	}
 
 	stream, err := client.CreateChatCompletionStream(ctx, req)
 	if err != nil {
+		if shouldFallbackToNonStreaming(err) {
+			log.Warnf("[agent] streaming request failed, retrying non-streaming: %v", err)
+			return runModelNonStreaming(ctx, client, req)
+		}
 		return openai.ChatCompletionMessage{}, err
 	}
 	defer stream.Close()
@@ -542,6 +539,10 @@ func (a *Agent) runModel(ctx context.Context, client *openai.Client, req openai.
 			break
 		}
 		if err != nil {
+			if shouldFallbackToNonStreaming(err) {
+				log.Warnf("[agent] streaming recv failed, retrying non-streaming: %v", err)
+				return runModelNonStreaming(ctx, client, req)
+			}
 			return openai.ChatCompletionMessage{}, err
 		}
 		if len(chunk.Choices) == 0 {
@@ -601,6 +602,25 @@ func (a *Agent) runModel(ctx context.Context, client *openai.Client, req openai.
 	}
 
 	return msg, nil
+}
+
+func runModelNonStreaming(ctx context.Context, client *openai.Client, req openai.ChatCompletionRequest) (openai.ChatCompletionMessage, error) {
+	response, err := client.CreateChatCompletion(ctx, req)
+	if err != nil {
+		return openai.ChatCompletionMessage{}, err
+	}
+	if len(response.Choices) == 0 {
+		return openai.ChatCompletionMessage{}, fmt.Errorf("llm returned no choices")
+	}
+	return response.Choices[0].Message, nil
+}
+
+func shouldFallbackToNonStreaming(err error) bool {
+	if err == nil {
+		return false
+	}
+	msg := strings.ToLower(strings.TrimSpace(err.Error()))
+	return strings.Contains(msg, "too many empty messages")
 }
 
 func (a *Agent) ResetMemory() error {

@@ -2232,23 +2232,18 @@
       } else {
         const doc = meta.document;
         const topicDocs = Array.isArray(meta.topic.documents_list) ? meta.topic.documents_list : [];
-        const relatedDocs = topicDocs.filter((item) => Number(item.id) !== Number(doc.id));
         pkbDetailEl.innerHTML =
           '<div class="pkb-topic-summary">' +
           '<div class="pkb-topic-summary-head">' +
-          '<div class="pkb-topic-summary-title"><h4>' + escapeHtml(doc.title || "(untitled document)") + "</h4></div>" +
+          '<div class="pkb-topic-summary-title"><h4>' + escapeHtml(meta.topic.title || doc.topic_title || "Topic") + "</h4></div>" +
           '<button class="pkb-action" type="button" data-pkb-close-document="' + escapeHtml(String(meta.topic.id)) + '">Close</button>' +
           "</div>" +
           '<div class="pkb-topic-summary-meta">' +
-          '<p>Topic: <span class="pkb-topic-value">' + escapeHtml(doc.topic_title || meta.topic.title) + "</span></p>" +
-          "<p>Kind: " + escapeHtml(doc.kind || "note") + "</p>" +
-          (doc.ingest_method ? "<p>Ingest: " + escapeHtml(doc.ingest_method) + "</p>" : "") +
-          (doc.source_url && safeHref(doc.source_url) ? '<p><a href="' + safeHref(doc.source_url) + '" target="_blank" rel="noopener noreferrer">Open source</a></p>' : "") +
+          '<p>Selected document: <span class="pkb-topic-value">' + escapeHtml(doc.title || "(untitled document)") + "</span></p>" +
+          "<p>Documents in topic: " + escapeHtml(String(topicDocs.length)) + "</p>" +
           "</div>" +
-          "</div>" +
-          '<div class="pkb-content">' + renderPKBContent(doc.content || "", doc.ingest_method || "") + "</div>" +
-          '<div class="pkb-topic-summary-actions"><button class="pkb-action danger" type="button" data-pkb-delete-document="' + escapeHtml(String(doc.id)) + '" data-pkb-topic-id="' + escapeHtml(String(meta.topic.id)) + '">Delete document</button></div>';
-        renderPKBDocuments(relatedDocs);
+          "</div>";
+        renderPKBDocuments(topicDocs, Number(doc.id));
       }
       bindPKBChatSelectionActions();
       bindPKBDeleteActions();
@@ -2360,7 +2355,7 @@
       });
     }
 
-    function renderPKBDocuments(documents) {
+    function renderPKBDocuments(documents, expandedDocID) {
       pkbDocumentsEl.innerHTML = "";
       if (!documents.length) {
         pkbDocumentsEl.innerHTML = '<div class="pkb-empty">No documents in this selection.</div>';
@@ -2368,21 +2363,23 @@
       }
       const selecting = !!pkbChatSelection;
       for (const doc of documents) {
+        const docID = Number(doc.id);
+        const expanded = !selecting && expandedDocID && docID === Number(expandedDocID);
         const card = document.createElement("div");
-        const selected = selecting && pkbChatSelection.selectedDocIDs.has(Number(doc.id));
+        const selected = selecting && pkbChatSelection.selectedDocIDs.has(docID);
         card.className = "pkb-card " + (selecting ? "is-selecting" : "is-clickable") + (selected ? " is-selected" : "");
         card.innerHTML =
           "<h4>" + escapeHtml(doc.title || "(untitled document)") + "</h4>" +
           "<p>" + escapeHtml(doc.kind || "note") + "</p>" +
           (doc.ingest_method ? "<p>" + escapeHtml(doc.ingest_method) + "</p>" : "") +
           (doc.source_url && safeHref(doc.source_url) ? '<p><a href="' + safeHref(doc.source_url) + '" target="_blank" rel="noopener noreferrer">' + escapeHtml(doc.source_url) + "</a></p>" : "") +
-          "<div>" + escapeHtml(trimText(doc.content || "", 260)) + "</div>";
+          "<div>" + (expanded ? renderPKBContent(doc.content || "", doc.ingest_method || "") : escapeHtml(trimText(doc.content || "", 260))) + "</div>" +
+          (expanded ? '<div class="pkb-topic-summary-actions"><button class="pkb-action danger" type="button" data-pkb-delete-document="' + escapeHtml(String(doc.id)) + '" data-pkb-topic-id="' + escapeHtml(String(doc.topic_id)) + '">Delete document</button></div>' : "");
         card.addEventListener("click", (event) => {
           if (event.target && event.target.closest("a")) {
             return;
           }
           if (selecting) {
-            const docID = Number(doc.id);
             if (pkbChatSelection.selectedDocIDs.has(docID)) {
               pkbChatSelection.selectedDocIDs.delete(docID);
             } else {

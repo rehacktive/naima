@@ -47,6 +47,7 @@ INSERT INTO persona_state(id) VALUES (TRUE) ON CONFLICT (id) DO NOTHING;
 const (
 	defaultExtractLookback = 24
 	defaultExtractFacts    = 12
+	defaultExtractTimeout  = 45 * time.Second
 )
 
 type MemorySource interface {
@@ -322,11 +323,14 @@ func (m *Manager) extractIfDirty(ctx context.Context) error {
 		return err
 	}
 
-	extractCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	extractCtx, cancel := context.WithTimeout(ctx, defaultExtractTimeout)
 	defer cancel()
 
 	facts, err := m.extractFacts(extractCtx, messages)
 	if err != nil {
+		m.mu.Lock()
+		m.dirty = true
+		m.mu.Unlock()
 		return err
 	}
 	for _, fact := range facts {
@@ -345,6 +349,9 @@ UPDATE persona_state
 SET last_fingerprint = $1, last_extracted_at = NOW(), updated_at = NOW()
 WHERE id = TRUE;
 `, fingerprint); err != nil {
+		m.mu.Lock()
+		m.dirty = true
+		m.mu.Unlock()
 		return fmt.Errorf("update persona state failed: %w", err)
 	}
 	log.Infof("[persona] extracted %d facts from recent conversation", len(facts))

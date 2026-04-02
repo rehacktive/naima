@@ -73,11 +73,12 @@ CREATE INDEX IF NOT EXISTS idx_pkb_document_tags_document_id ON pkb_document_tag
 `
 
 const (
-	defaultChunkSize           = 2000
-	defaultRetrievalDocLimit   = 3
-	defaultRetrievalChunkLimit = 4
-	defaultRetrievalThreshold  = 0.35
-	defaultTagLimit            = 12
+	defaultChunkSize            = 2000
+	defaultRetrievalDocLimit    = 3
+	defaultRetrievalChunkLimit  = 4
+	defaultRetrievalThreshold   = 0.35
+	defaultTagLimit             = 12
+	defaultTagExtractionTimeout = 8 * time.Second
 )
 
 type Storage struct {
@@ -395,10 +396,7 @@ RETURNING id, topic_id, kind, title, source_url, ingest_method, content, created
 		return Document{}, err
 	}
 	if err := s.rebuildTagsForDocument(ctx, d.ID, d.Content); err != nil {
-		if _, delErr := s.pool.Exec(ctx, `DELETE FROM pkb_documents WHERE id = $1`, d.ID); delErr != nil {
-			log.Warnf("[pkb] rollback document after tag failure failed document_id=%d err=%v", d.ID, delErr)
-		}
-		return Document{}, err
+		log.Warnf("[pkb] tag extraction skipped on create document_id=%d err=%v", d.ID, err)
 	}
 	return d, nil
 }
@@ -464,7 +462,7 @@ RETURNING id, topic_id, kind, title, source_url, ingest_method, content, created
 		return Document{}, err
 	}
 	if err := s.rebuildTagsForDocument(ctx, d.ID, d.Content); err != nil {
-		return Document{}, err
+		log.Warnf("[pkb] tag extraction skipped on update document_id=%d err=%v", d.ID, err)
 	}
 	return d, nil
 }
@@ -899,13 +897,12 @@ func (s *Storage) rebuildTagsForDocument(ctx context.Context, documentID int64, 
 	if documentID <= 0 {
 		return errors.New("document_id is required")
 	}
-	if _, err := s.pool.Exec(ctx, `DELETE FROM pkb_document_tags WHERE document_id = $1`, documentID); err != nil {
-		return fmt.Errorf("delete document tags failed: %w", err)
-	}
-
 	tagCounts, err := s.extractTagCounts(ctx, content, s.tagLimit)
 	if err != nil {
 		return err
+	}
+	if _, err := s.pool.Exec(ctx, `DELETE FROM pkb_document_tags WHERE document_id = $1`, documentID); err != nil {
+		return fmt.Errorf("delete document tags failed: %w", err)
 	}
 	if len(tagCounts) == 0 {
 		return nil
@@ -963,8 +960,9 @@ func (s *Storage) extractTagCounts(ctx context.Context, content string, limit in
 	if s.tagger == nil {
 		return nil, nil
 	}
-
-	tags, err := s.tagger(ctx, content, limit)
+	tagCtx, cancel := withOptionalTimeout(ctx, defaultTagExtractionTimeout)
+	defer cancel()
+	tags, err := s.tagger(tagCtx, content, limit)
 	if err != nil {
 		return nil, fmt.Errorf("extract tags with llm failed: %w", err)
 	}
@@ -978,6 +976,18 @@ func (s *Storage) extractTagCounts(ctx context.Context, content string, limit in
 		})
 	}
 	return out, nil
+}
+
+func withOptionalTimeout(ctx context.Context, timeout time.Duration) (context.Context, context.CancelFunc) {
+	if timeout <= 0 {
+		return ctx, func() {}
+	}
+	if deadline, ok := ctx.Deadline(); ok {
+		if time.Until(deadline) <= timeout {
+			return ctx, func() {}
+		}
+	}
+	return context.WithTimeout(ctx, timeout)
 }
 
 func normalizeLLMTags(tags []ExtractedTag, limit int) []ExtractedTag {
