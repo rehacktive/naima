@@ -476,11 +476,15 @@ func (t *EmailTool) sendMessage(in emailParams) string {
 	if textBody == "" && htmlBody == "" {
 		return errorJSON("text or html is required")
 	}
-	if htmlBody != "" && textBody == "" {
-		textBody = htmlToText(htmlBody)
+	if htmlBody != "" {
+		textBody = firstNonEmptyTrimmed(textBody, htmlToText(htmlBody))
+	}
+	textBody = normalizeOutgoingEmailText(textBody)
+	if textBody == "" {
+		return errorJSON("email body is empty after plain-text normalization")
 	}
 
-	msg, from, recipients, err := t.buildSMTPMessage(in.Subject, textBody, htmlBody, in.ReplyTo, to, cc, bcc)
+	msg, from, recipients, err := t.buildSMTPMessage(in.Subject, textBody, in.ReplyTo, to, cc, bcc)
 	if err != nil {
 		return errorJSON(err.Error())
 	}
@@ -522,7 +526,7 @@ func (t *EmailTool) openPOP3() (*pop3Client, error) {
 	return client, nil
 }
 
-func (t *EmailTool) buildSMTPMessage(subject string, textBody string, htmlBody string, replyTo string, to []string, cc []string, bcc []string) ([]byte, string, []string, error) {
+func (t *EmailTool) buildSMTPMessage(subject string, textBody string, replyTo string, to []string, cc []string, bcc []string) ([]byte, string, []string, error) {
 	from := strings.TrimSpace(t.smtp.From)
 	if from == "" {
 		return nil, "", nil, fmt.Errorf("smtp from address is not configured")
@@ -532,7 +536,6 @@ func (t *EmailTool) buildSMTPMessage(subject string, textBody string, htmlBody s
 		return nil, "", nil, fmt.Errorf("at least one recipient is required")
 	}
 
-	boundary := fmt.Sprintf("naima-%d", time.Now().UnixNano())
 	var body bytes.Buffer
 	body.WriteString(fmt.Sprintf("From: %s\r\n", from))
 	if len(to) > 0 {
@@ -547,27 +550,10 @@ func (t *EmailTool) buildSMTPMessage(subject string, textBody string, htmlBody s
 	if rt := strings.TrimSpace(replyTo); rt != "" {
 		body.WriteString(fmt.Sprintf("Reply-To: %s\r\n", rt))
 	}
-
-	if htmlBody != "" {
-		body.WriteString(fmt.Sprintf("Content-Type: multipart/alternative; boundary=%q\r\n", boundary))
-		body.WriteString("\r\n")
-		body.WriteString(fmt.Sprintf("--%s\r\n", boundary))
-		body.WriteString("Content-Type: text/plain; charset=UTF-8\r\n")
-		body.WriteString("Content-Transfer-Encoding: 8bit\r\n\r\n")
-		body.WriteString(textBody)
-		body.WriteString("\r\n")
-		body.WriteString(fmt.Sprintf("--%s\r\n", boundary))
-		body.WriteString("Content-Type: text/html; charset=UTF-8\r\n")
-		body.WriteString("Content-Transfer-Encoding: 8bit\r\n\r\n")
-		body.WriteString(htmlBody)
-		body.WriteString("\r\n")
-		body.WriteString(fmt.Sprintf("--%s--\r\n", boundary))
-	} else {
-		body.WriteString("Content-Type: text/plain; charset=UTF-8\r\n")
-		body.WriteString("Content-Transfer-Encoding: 8bit\r\n\r\n")
-		body.WriteString(textBody)
-		body.WriteString("\r\n")
-	}
+	body.WriteString("Content-Type: text/plain; charset=UTF-8\r\n")
+	body.WriteString("Content-Transfer-Encoding: 8bit\r\n\r\n")
+	body.WriteString(textBody)
+	body.WriteString("\r\n")
 	return body.Bytes(), from, recipients, nil
 }
 
@@ -1017,6 +1003,52 @@ func htmlToText(content string) string {
 	out = htmlTagPattern.ReplaceAllString(out, " ")
 	out = spacePattern.ReplaceAllString(out, " ")
 	return strings.TrimSpace(out)
+}
+
+func normalizeOutgoingEmailText(content string) string {
+	content = strings.ReplaceAll(content, "\r\n", "\n")
+	content = strings.ReplaceAll(content, "\r", "\n")
+	lines := strings.Split(content, "\n")
+	out := make([]string, 0, len(lines))
+	blank := false
+	for _, line := range lines {
+		line = stripMarkdownFormatting(line)
+		line = strings.TrimSpace(spacePattern.ReplaceAllString(line, " "))
+		if line == "" {
+			if !blank && len(out) > 0 {
+				out = append(out, "")
+			}
+			blank = true
+			continue
+		}
+		out = append(out, line)
+		blank = false
+	}
+	return strings.TrimSpace(strings.Join(out, "\n"))
+}
+
+func stripMarkdownFormatting(line string) string {
+	replacer := strings.NewReplacer(
+		"**", "",
+		"__", "",
+		"`", "",
+		"~~", "",
+		"# ", "",
+		"## ", "",
+		"### ", "",
+		"#### ", "",
+		"##### ", "",
+		"###### ", "",
+		"> ", "",
+		"* ", "- ",
+		"- [ ] ", "- ",
+		"- [x] ", "- ",
+	)
+	line = replacer.Replace(line)
+	line = regexp.MustCompile(`\[(.*?)\]\((.*?)\)`).ReplaceAllString(line, "$1: $2")
+	line = regexp.MustCompile(`!\[(.*?)\]\((.*?)\)`).ReplaceAllString(line, "$1")
+	line = regexp.MustCompile(`(^|\s)[*_]+([^*_]+)[*_]+`).ReplaceAllString(line, "$1$2")
+	return line
 }
 
 func normalizeAddressHeader(raw string) []string {

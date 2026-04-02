@@ -2160,8 +2160,8 @@
         ["messages", status.current_size ?? status.CurrentSize],
         ["summaries", status.summary_messages ?? status.SummaryMessages ?? 0],
         ["recalled", status.recall_messages ?? status.RecallMessages ?? 0],
-        ["summarizer", status.HasSummarizer ? "yes" : "no"],
-        ["pending_recall", status.HasPendingRecall ? "yes" : "no"]
+        ["summarizer", (status.has_summarizer ?? status.HasSummarizer) ? "yes" : "no"],
+        ["pending_recall", (status.has_pending_recall ?? status.HasPendingRecall) ? "yes" : "no"]
       ];
       for (const [k, v] of entries) {
         const item = document.createElement("div");
