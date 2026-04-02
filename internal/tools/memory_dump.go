@@ -2,13 +2,12 @@ package tools
 
 import (
 	"encoding/json"
+	"naima/internal/memory"
 	"strings"
-
-	memstorage "github.com/rehacktive/memorya/storage"
 )
 
 type MemoryMessagesProvider interface {
-	GetMessages() []memstorage.Message
+	GetMessages() []memory.Message
 }
 
 type MemoryDumpTool struct {
@@ -22,7 +21,6 @@ type memoryDumpParams struct {
 type memoryDumpMessage struct {
 	Role      string `json:"role"`
 	Content   string `json:"content"`
-	Pinned    bool   `json:"pinned"`
 	CreatedAt string `json:"created_at,omitempty"`
 }
 
@@ -63,7 +61,6 @@ func (t *MemoryDumpTool) GetFunction() func(params string) string {
 			item := memoryDumpMessage{
 				Role:    msg.Role,
 				Content: msg.Content,
-				Pinned:  msg.Pinned,
 			}
 			if msg.CreatedAt != nil {
 				item.CreatedAt = msg.CreatedAt.UTC().Format("2006-01-02T15:04:05Z07:00")

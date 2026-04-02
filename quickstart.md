@@ -50,6 +50,12 @@ NAIMA_PERSONA_LOOKBACK_MESSAGES=24
 NAIMA_PERSONA_MAX_FACTS=12
 ```
 
+Optional memory budget knob:
+
+```env
+NAIMA_MEMORY_MAX_TOKENS=6000
+```
+
 ## 3) LLM provider setup
 
 Naima uses OpenAI-compatible APIs. Choose one of these patterns.

@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/jackc/pgx/v5/pgxpool"
-	memstorage "github.com/rehacktive/memorya/storage"
 	log "github.com/sirupsen/logrus"
 )
 
@@ -54,13 +53,13 @@ func (s *PGVectorStorage) Close() {
 	}
 }
 
-func (s *PGVectorStorage) StoreMessage(message memstorage.Message) error {
+func (s *PGVectorStorage) StoreMessage(message Message) error {
 	if message.Id == "" {
 		id, err := randomID()
 		if err != nil {
 			return err
 		}
-		message.Id = memstorage.ID(id)
+		message.Id = ID(id)
 	}
 	if message.CreatedAt == nil {
 		now := time.Now().UTC()
@@ -71,8 +70,8 @@ func (s *PGVectorStorage) StoreMessage(message memstorage.Message) error {
 	defer cancel()
 
 	query := `
-		INSERT INTO memory_messages (id, created_at, role, content, cost, pinned, embeddings)
-		VALUES ($1, $2, $3, $4, $5, $6, $7::vector)
+		INSERT INTO memory_messages (id, created_at, role, content, cost, embeddings)
+		VALUES ($1, $2, $3, $4, $5, $6::vector)
 		ON CONFLICT (id) DO NOTHING
 	`
 
@@ -89,7 +88,6 @@ func (s *PGVectorStorage) StoreMessage(message memstorage.Message) error {
 		message.Role,
 		message.Content,
 		message.Cost,
-		message.Pinned,
 		embeddings,
 	); err != nil {
 		return fmt.Errorf("store message failed: %w", err)
@@ -98,7 +96,7 @@ func (s *PGVectorStorage) StoreMessage(message memstorage.Message) error {
 	return nil
 }
 
-func (s *PGVectorStorage) SearchRelatedMessages(queryEmbeddings []float32) ([]memstorage.Message, error) {
+func (s *PGVectorStorage) SearchRelatedMessages(queryEmbeddings []float32) ([]Message, error) {
 	if len(queryEmbeddings) == 0 {
 		return nil, nil
 	}
@@ -109,7 +107,7 @@ func (s *PGVectorStorage) SearchRelatedMessages(queryEmbeddings []float32) ([]me
 	rows, err := s.pool.Query(
 		ctx,
 		`
-			SELECT id, created_at, role, content, cost, pinned
+			SELECT id, created_at, role, content, cost
 			FROM memory_messages
 			WHERE embeddings IS NOT NULL
 			  AND vector_dims(embeddings) = $2
@@ -125,17 +123,17 @@ func (s *PGVectorStorage) SearchRelatedMessages(queryEmbeddings []float32) ([]me
 	}
 	defer rows.Close()
 
-	result := make([]memstorage.Message, 0, s.searchLimit)
+	result := make([]Message, 0, s.searchLimit)
 	for rows.Next() {
 		var (
 			id        string
 			createdAt time.Time
-			msg       memstorage.Message
+			msg       Message
 		)
-		if err := rows.Scan(&id, &createdAt, &msg.Role, &msg.Content, &msg.Cost, &msg.Pinned); err != nil {
+		if err := rows.Scan(&id, &createdAt, &msg.Role, &msg.Content, &msg.Cost); err != nil {
 			return nil, fmt.Errorf("scan related message failed: %w", err)
 		}
-		msg.Id = memstorage.ID(id)
+		msg.Id = ID(id)
 		msg.CreatedAt = &createdAt
 		result = append(result, msg)
 	}

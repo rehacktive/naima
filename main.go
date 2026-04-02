@@ -15,7 +15,6 @@ import (
 	"unicode"
 
 	"github.com/joho/godotenv"
-	memcore "github.com/rehacktive/memorya/memorya"
 	openai "github.com/sashabaranov/go-openai"
 	log "github.com/sirupsen/logrus"
 
@@ -89,9 +88,13 @@ func main() {
 		os.Exit(1)
 	}
 	defer memStore.Close()
-	memSize := envInt("NAIMA_MEMORY_MAX_CONTEXT", 50)
+	memTokens := envInt("NAIMA_MEMORY_MAX_TOKENS", 0)
+	if memTokens <= 0 {
+		legacy := envInt("NAIMA_MEMORY_MAX_CONTEXT", 50)
+		memTokens = legacy * 300
+	}
 	memorySummarizer := memory.NewLLMSummarizer(client, llmConfig.Model, time.Duration(envInt("NAIMA_MEMORY_SUMMARY_TIMEOUT_MS", 8000))*time.Millisecond)
-	memoryInstance := memcore.InitMemoryaWithSummarizer(memSize, memStore, memorySummarizer)
+	memoryInstance := memory.NewManager(memTokens, memStore, memorySummarizer)
 	telegramNotifier := telegram.NewNotifier(strings.TrimSpace(os.Getenv("TELEGRAM_BOT_TOKEN")), os.Getenv("NAIMA_SESSION_FILE"))
 	taskManager, err := tasks.NewManager(ctx, pgvectorDSN(), telegramNotifier, taskLocation())
 	if err != nil {

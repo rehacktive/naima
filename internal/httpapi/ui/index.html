@@ -2155,10 +2155,9 @@
         return;
       }
       const entries = [
-        ["max", status.MaxContextSize],
-        ["current", status.CurrentSize],
-        ["pinned", status.PinnedCount],
-        ["unpinned", status.UnpinnedCount],
+        ["max_tokens", status.max_context_tokens ?? status.MaxContextTokens],
+        ["current_tokens", status.current_tokens ?? status.CurrentTokens],
+        ["messages", status.current_size ?? status.CurrentSize],
         ["summaries", status.summary_messages ?? status.SummaryMessages ?? 0],
         ["recalled", status.recall_messages ?? status.RecallMessages ?? 0],
         ["summarizer", status.HasSummarizer ? "yes" : "no"],

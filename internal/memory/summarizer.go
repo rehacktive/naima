@@ -6,7 +6,6 @@ import (
 	"strings"
 	"time"
 
-	memstorage "github.com/rehacktive/memorya/storage"
 	openai "github.com/sashabaranov/go-openai"
 	log "github.com/sirupsen/logrus"
 )
@@ -34,14 +33,16 @@ func NewLLMSummarizer(client *openai.Client, model string, timeout time.Duration
 	}
 }
 
-func (s *LLMSummarizer) Summarize(messages []memstorage.Message) (memstorage.Message, error) {
+func (s *LLMSummarizer) Summarize(messages []Message) (Message, error) {
 	if s == nil || s.client == nil || s.model == "" {
-		return memstorage.Message{}, fmt.Errorf("llm summarizer is not configured")
+		return Message{}, fmt.Errorf("llm summarizer is not configured")
 	}
 	if len(messages) == 0 {
-		return memstorage.Message{
+		content := "Summary: no previous messages to summarize."
+		return Message{
 			Role:    "system",
-			Content: "Summary: no previous messages to summarize.",
+			Content: content,
+			Cost:    estimateTokens(content),
 		}, nil
 	}
 
@@ -64,7 +65,7 @@ func (s *LLMSummarizer) Summarize(messages []memstorage.Message) (memstorage.Mes
 		items = append(items, fmt.Sprintf("- %s: %s", role, content))
 	}
 	if len(items) == 0 {
-		return memstorage.Message{}, fmt.Errorf("no non-empty messages to summarize")
+		return Message{}, fmt.Errorf("no non-empty messages to summarize")
 	}
 	log.Infof("[memory] summarizer invoked items=%d model=%s timeout=%s", len(items), s.model, s.timeout)
 
@@ -91,31 +92,39 @@ func (s *LLMSummarizer) Summarize(messages []memstorage.Message) (memstorage.Mes
 	resp, err := s.client.CreateChatCompletion(ctx, req)
 	if err != nil {
 		log.Warnf("[memory] llm summarizer failed: %v; using fallback summary", err)
-		return memstorage.Message{
+		content := buildFallbackSummary(items)
+		return Message{
 			Role:    "system",
-			Content: buildFallbackSummary(items),
+			Content: content,
+			Cost:    estimateTokens(content),
 		}, nil
 	}
 	if len(resp.Choices) == 0 {
 		log.Warnf("[memory] llm summarizer returned no choices; using fallback summary")
-		return memstorage.Message{
+		content := buildFallbackSummary(items)
+		return Message{
 			Role:    "system",
-			Content: buildFallbackSummary(items),
+			Content: content,
+			Cost:    estimateTokens(content),
 		}, nil
 	}
 	summary := strings.TrimSpace(resp.Choices[0].Message.Content)
 	if summary == "" {
 		log.Warnf("[memory] llm summarizer returned empty content; using fallback summary")
-		return memstorage.Message{
+		content := buildFallbackSummary(items)
+		return Message{
 			Role:    "system",
-			Content: buildFallbackSummary(items),
+			Content: content,
+			Cost:    estimateTokens(content),
 		}, nil
 	}
 	log.Infof("[memory] llm summary generated chars=%d", len(summary))
 
-	return memstorage.Message{
+	content := "Summary: " + summary
+	return Message{
 		Role:    "system",
-		Content: "Summary: " + summary,
+		Content: content,
+		Cost:    estimateTokens(content),
 	}, nil
 }
 

@@ -7,8 +7,8 @@ import (
 	"strings"
 	"time"
 
-	memstorage "github.com/rehacktive/memorya/storage"
 	openai "github.com/sashabaranov/go-openai"
+	"naima/internal/memory"
 )
 
 const defaultLongMemoryMatches = 8
@@ -17,14 +17,14 @@ type LongMemoryTool struct {
 	client         *openai.Client
 	chatModel      string
 	embeddingModel string
-	storage        memstorage.Storage
+	storage        memory.Storage
 }
 
 type longMemoryParams struct {
 	Something string `json:"something"`
 }
 
-func NewLongMemoryTool(client *openai.Client, chatModel string, embeddingModel string, storage memstorage.Storage) Tool {
+func NewLongMemoryTool(client *openai.Client, chatModel string, embeddingModel string, storage memory.Storage) Tool {
 	return &LongMemoryTool{
 		client:         client,
 		chatModel:      strings.TrimSpace(chatModel),
@@ -111,7 +111,7 @@ func (t *LongMemoryTool) GetParameters() Parameters {
 	}
 }
 
-func (t *LongMemoryTool) summarizeWithLLM(ctx context.Context, topic string, messages []memstorage.Message, maxItems int) (string, error) {
+func (t *LongMemoryTool) summarizeWithLLM(ctx context.Context, topic string, messages []memory.Message, maxItems int) (string, error) {
 	if len(messages) == 0 {
 		return "No relevant previous discussion found.", nil
 	}
@@ -174,7 +174,7 @@ func (t *LongMemoryTool) summarizeWithLLM(ctx context.Context, topic string, mes
 	return summary, nil
 }
 
-func summarizeMemoryFallback(messages []memstorage.Message, maxItems int) string {
+func summarizeMemoryFallback(messages []memory.Message, maxItems int) string {
 	if len(messages) == 0 {
 		return "No relevant previous discussion found."
 	}

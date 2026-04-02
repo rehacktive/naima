@@ -9,8 +9,6 @@ import (
 	"path/filepath"
 	"sync"
 	"time"
-
-	memstorage "github.com/rehacktive/memorya/storage"
 )
 
 type FileStorage struct {
@@ -20,7 +18,7 @@ type FileStorage struct {
 }
 
 type persistedData struct {
-	Messages []memstorage.Message `json:"messages"`
+	Messages []Message `json:"messages"`
 }
 
 func NewFileStorage(path string) (*FileStorage, error) {
@@ -32,7 +30,7 @@ func NewFileStorage(path string) (*FileStorage, error) {
 	return s, nil
 }
 
-func (s *FileStorage) StoreMessage(message memstorage.Message) error {
+func (s *FileStorage) StoreMessage(message Message) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -41,7 +39,7 @@ func (s *FileStorage) StoreMessage(message memstorage.Message) error {
 		if err != nil {
 			return err
 		}
-		message.Id = memstorage.ID(id)
+		message.Id = ID(id)
 	}
 	if message.CreatedAt == nil {
 		now := time.Now().UTC()
@@ -58,7 +56,7 @@ func (s *FileStorage) StoreMessage(message memstorage.Message) error {
 	return s.persistLocked()
 }
 
-func (s *FileStorage) SearchRelatedMessages(_ []float32) ([]memstorage.Message, error) {
+func (s *FileStorage) SearchRelatedMessages(_ []float32) ([]Message, error) {
 	// This implementation intentionally disables semantic recall.
 	return nil, nil
 }
@@ -70,7 +68,7 @@ func (s *FileStorage) load() error {
 	data, err := os.ReadFile(s.path)
 	if err != nil {
 		if os.IsNotExist(err) {
-			s.data = persistedData{Messages: make([]memstorage.Message, 0)}
+			s.data = persistedData{Messages: make([]Message, 0)}
 			return nil
 		}
 		return fmt.Errorf("read memory file failed: %w", err)
@@ -81,7 +79,7 @@ func (s *FileStorage) load() error {
 		return fmt.Errorf("parse memory file failed: %w", err)
 	}
 	if parsed.Messages == nil {
-		parsed.Messages = make([]memstorage.Message, 0)
+		parsed.Messages = make([]Message, 0)
 	}
 	s.data = parsed
 	return nil

@@ -14,9 +14,10 @@ import (
 
 	"github.com/jackc/pgx/v5"
 	"github.com/jackc/pgx/v5/pgxpool"
-	memstorage "github.com/rehacktive/memorya/storage"
 	openai "github.com/sashabaranov/go-openai"
 	log "github.com/sirupsen/logrus"
+
+	"naima/internal/memory"
 )
 
 const initSchemaQuery = `
@@ -49,7 +50,7 @@ const (
 )
 
 type MemorySource interface {
-	GetMessages() []memstorage.Message
+	GetMessages() []memory.Message
 }
 
 type Fact struct {
@@ -350,7 +351,7 @@ WHERE id = TRUE;
 	return nil
 }
 
-func (m *Manager) extractFacts(ctx context.Context, messages []memstorage.Message) ([]extractedFact, error) {
+func (m *Manager) extractFacts(ctx context.Context, messages []memory.Message) ([]extractedFact, error) {
 	lines := make([]string, 0, len(messages))
 	for _, msg := range messages {
 		content := strings.TrimSpace(msg.Content)
@@ -433,11 +434,11 @@ func (m *Manager) isFingerprintCurrent(ctx context.Context, fingerprint string) 
 	return strings.TrimSpace(current) == strings.TrimSpace(fingerprint), nil
 }
 
-func recentMessages(messages []memstorage.Message, limit int) []memstorage.Message {
+func recentMessages(messages []memory.Message, limit int) []memory.Message {
 	if limit <= 0 || len(messages) <= limit {
-		return append([]memstorage.Message(nil), messages...)
+		return append([]memory.Message(nil), messages...)
 	}
-	out := append([]memstorage.Message(nil), messages[len(messages)-limit:]...)
+	out := append([]memory.Message(nil), messages[len(messages)-limit:]...)
 	sort.SliceStable(out, func(i, j int) bool {
 		a := out[i].CreatedAt
 		b := out[j].CreatedAt
@@ -449,7 +450,7 @@ func recentMessages(messages []memstorage.Message, limit int) []memstorage.Messa
 	return out
 }
 
-func fingerprintMessages(messages []memstorage.Message) string {
+func fingerprintMessages(messages []memory.Message) string {
 	var b strings.Builder
 	for _, msg := range messages {
 		b.WriteString(strings.TrimSpace(msg.Role))

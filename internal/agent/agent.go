@@ -12,11 +12,10 @@ import (
 	"sync"
 	"time"
 
-	memcore "github.com/rehacktive/memorya/memorya"
-	memstorage "github.com/rehacktive/memorya/storage"
 	openai "github.com/sashabaranov/go-openai"
 	log "github.com/sirupsen/logrus"
 
+	"naima/internal/memory"
 	"naima/internal/persona"
 	"naima/internal/pkb"
 	"naima/internal/safeio"
@@ -42,9 +41,9 @@ type Agent struct {
 }
 
 type ConversationMemory interface {
-	AddMessage(message memstorage.Message, pinned bool)
-	GetMessages() []memstorage.Message
-	GetStatus() memcore.Status
+	AddMessage(message memory.Message)
+	GetMessages() []memory.Message
+	GetStatus() memory.Status
 	Reset()
 }
 
@@ -60,7 +59,7 @@ type PKBRetriever interface {
 }
 
 type MemoryStatusView struct {
-	memcore.Status
+	memory.Status
 	SummaryMessages int `json:"summary_messages"`
 	RecallMessages  int `json:"recall_messages"`
 }
@@ -188,12 +187,13 @@ func (a *Agent) processMessage(ctx context.Context, input string, onDelta func(s
 
 	now := time.Now().UTC()
 	a.mu.Lock()
-	memoryStore.AddMessage(memstorage.Message{
+	memoryStore.AddMessage(memory.Message{
 		Role:       openai.ChatMessageRoleUser,
 		Content:    normalizedInput,
+		Cost:       memory.EstimateTokens(normalizedInput),
 		Embeddings: &emb,
 		CreatedAt:  &now,
-	}, false)
+	})
 	memoryMessages := memoryStore.GetMessages()
 	a.mu.Unlock()
 	log.Infof("[agent] user message saved to memory")
@@ -267,11 +267,12 @@ func (a *Agent) processMessage(ctx context.Context, input string, onDelta func(s
 				}
 				now = time.Now().UTC()
 				a.mu.Lock()
-				memoryStore.AddMessage(memstorage.Message{
+				memoryStore.AddMessage(memory.Message{
 					Role:      openai.ChatMessageRoleAssistant,
 					Content:   reply,
+					Cost:      memory.EstimateTokens(reply),
 					CreatedAt: &now,
-				}, false)
+				})
 				a.mu.Unlock()
 				if personaUpdater != nil {
 					personaUpdater.MarkDirty()
@@ -315,11 +316,12 @@ func (a *Agent) processMessage(ctx context.Context, input string, onDelta func(s
 	}
 	now = time.Now().UTC()
 	a.mu.Lock()
-	memoryStore.AddMessage(memstorage.Message{
+	memoryStore.AddMessage(memory.Message{
 		Role:      openai.ChatMessageRoleAssistant,
 		Content:   answer,
+		Cost:      memory.EstimateTokens(answer),
 		CreatedAt: &now,
-	}, false)
+	})
 	a.mu.Unlock()
 	if personaUpdater != nil {
 		personaUpdater.MarkDirty()

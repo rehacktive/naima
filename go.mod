@@ -7,7 +7,6 @@ require (
 	github.com/jackc/pgx/v5 v5.8.0
 	github.com/joho/godotenv v1.5.1
 	github.com/playwright-community/playwright-go v0.5700.1
-	github.com/rehacktive/memorya v0.0.0-20260302185558-06a3c02bf639
 	github.com/robfig/cron/v3 v3.0.1
 	github.com/sashabaranov/go-openai v1.27.0
 	github.com/sirupsen/logrus v1.9.4
